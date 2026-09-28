@@ -4,6 +4,25 @@ Parent: slyckmb/projects#12 (M12)
 Acceptance/proof owner: slyckmb/projects#25  
 Upstream source: openclaw/openclaw#158600 and PR #158615
 
+## Provenance
+
+- Pinned downstream baseline: this fork's `main` at `a27f7fe56c2868d89a60db534f9dcd041fe2fdda`
+  (an ancestor of `openclaw/openclaw` `main`; reachable, pushed, exact).
+- Exact upstream patch source: `openclaw/openclaw#158615`
+  (`fix(agent): preserve exact auth bindings in explicit fallback chains`),
+  head `545378d48a715eeeb7eff3f8d041bf041f482ba4`, still OPEN/unmerged upstream at
+  time of porting.
+- The upstream diff does not apply mechanically (`git apply --check` fails: file
+  structure has drifted, e.g. `model-selection.configured.test.ts` does not exist
+  at this baseline). The patch below is a manual, behavior-equivalent port onto
+  this baseline's actual file structure, not a literal cherry-pick.
+- Known gap: the operator's actual currently-deployed OpenClaw runtime is far
+  ahead of this baseline (built from `upstream/release/2026.9.3` plus local
+  unpushed commits in `/home/michael/dev/vendor/runtimes/openclaw-1be78179`).
+  Building the versioned patched runtime (plan step 5) will require forward-
+  porting/rebasing this patch onto that actual baseline before use; that is
+  intentionally out of scope for this PR (no production runtime mutation here).
+
 ## Decision
 
 M12 will not wait for upstream OpenClaw acceptance or merge of the exact-binding fix.

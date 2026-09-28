@@ -127,6 +127,9 @@ export async function resolveEmbeddedModelSelection(params: {
     typeof params.opts.model === "string"
       ? normalizeExplicitOverrideInput(params.opts.model, "model")
       : undefined;
+  const explicitRunAuthProfileId = explicitModelOverride
+    ? splitTrailingAuthProfile(explicitModelOverride).profile
+    : undefined;
   const hasExplicitRunOverride = Boolean(explicitProviderOverride || explicitModelOverride);
   if (hasExplicitRunOverride && isModelSelectionLocked(sessionEntry)) {
     throw new ModelSelectionLockedError();
@@ -659,6 +662,7 @@ export async function resolveEmbeddedModelSelection(params: {
     defaultProvider,
     defaultModel,
     configuredDefaultAuthProfileId,
+    explicitRunAuthProfileId,
     providerForAuthProfileValidation,
     visibilityPolicy,
     hasExplicitRunOverride,

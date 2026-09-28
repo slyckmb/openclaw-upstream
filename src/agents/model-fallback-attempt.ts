@@ -65,6 +65,8 @@ export function isFallbackSummaryError(err: unknown): err is FallbackSummaryErro
 export type ModelFallbackRunOptions = {
   allowTransientCooldownProbe?: boolean;
   isFinalFallbackAttempt?: boolean;
+  /** Exact candidate auth binding. The inner run must treat this as a user lock. */
+  authProfileId?: string;
   modelRoutingProvenance: ModelFallbackAttemptProvenance;
 };
 
@@ -77,6 +79,31 @@ export function resolveFallbackAuthScope(params: {
   }
   // resolveAuthProfileOrder places the profile selected for this model first.
   return params.profileIds?.find((id) => id.trim())?.trim();
+}
+
+/** An exact candidate binding is a hard lock: no ambient same-provider profile
+ * substitution/rotation is considered when the candidate carries one. */
+export function resolveFallbackCandidateAuthProfileIds(params: {
+  authRuntime: ModelFallbackAuthRuntime;
+  cfg: OpenClawConfig | undefined;
+  store: AuthProfileStore;
+  candidate: ModelCandidate;
+  userLockedAuthProfileEligible: boolean;
+  userLockedAuthProfileId?: string;
+}): string[] {
+  const candidateLock = params.candidate.authProfileId?.trim();
+  if (candidateLock) {
+    return [candidateLock];
+  }
+  const ordered = params.authRuntime.resolveAuthProfileOrder({
+    cfg: params.cfg,
+    store: params.store,
+    provider: params.candidate.provider,
+    forModel: params.candidate.model,
+  });
+  return params.userLockedAuthProfileEligible && params.userLockedAuthProfileId
+    ? [...new Set([params.userLockedAuthProfileId, ...ordered])]
+    : ordered;
 }
 
 type ModelFallbackRuntimeContext = {

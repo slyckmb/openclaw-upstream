@@ -496,6 +496,8 @@ export function runAgentAttempt(params: {
   modelHasVision?: boolean;
   modelThinkingCapability?: RunEmbeddedAgentInternalParams["modelThinkingCapability"];
   configuredAuthProfileId?: string;
+  /** Exact fallback-candidate binding; stronger than ambient/session auth selection. */
+  candidateAuthProfileId?: string;
   originalProvider: string;
   cfg: OpenClawConfig;
   sessionEntry: SessionEntry | undefined;
@@ -552,10 +554,12 @@ export function runAgentAttempt(params: {
 }) {
   const sessionAuthProfileId = params.sessionEntry?.authProfileOverride?.trim();
   const sessionAuthProfileSource = resolveSessionAuthProfileOverrideSource(params.sessionEntry);
-  // An explicit session choice owns the conversation. Otherwise the profile
-  // bound to the configured model replaces a stale automatic session choice.
-  const selectedAuthProfile =
-    sessionAuthProfileId && sessionAuthProfileSource !== "auto"
+  // An exact fallback-candidate binding owns this attempt. Otherwise an explicit
+  // session choice owns the conversation, and configured model auth replaces a
+  // stale automatic session choice.
+  const selectedAuthProfile = params.candidateAuthProfileId?.trim()
+    ? { id: params.candidateAuthProfileId.trim(), source: "user" as const }
+    : sessionAuthProfileId && sessionAuthProfileSource !== "auto"
       ? { id: sessionAuthProfileId, source: sessionAuthProfileSource }
       : params.configuredAuthProfileId?.trim()
         ? { id: params.configuredAuthProfileId.trim(), source: "user" as const }
