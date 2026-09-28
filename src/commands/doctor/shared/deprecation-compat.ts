@@ -106,7 +106,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
       "src/commands/doctor-config-flow.test.ts",
     ],
   }),
-  deprecatedCompatRecord("doctor-cli-backends-plugin-registration", {
+  removalPendingCompatRecord("doctor-cli-backends-plugin-registration", {
     removeAfter: "2026-09-22",
     owner: "agent-runtime",
     introduced: "2026-07-21",
@@ -119,7 +119,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
       "src/config/dead-config-keys.test.ts",
     ],
   }),
-  deprecatedCompatRecord("doctor-model-compat-catalog-ownership", {
+  removalPendingCompatRecord("doctor-model-compat-catalog-ownership", {
     removeAfter: "2026-09-22",
     owner: "provider",
     introduced: "2026-07-21",
@@ -132,7 +132,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
       "src/config/dead-config-keys.test.ts",
     ],
   }),
-  deprecatedCompatRecord("doctor-tier-eval-tranche", {
+  removalPendingCompatRecord("doctor-tier-eval-tranche", {
     removeAfter: "2026-09-18",
     owner: "config",
     introduced: "2026-07-20",
@@ -146,7 +146,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
       "src/config/dead-config-keys.test.ts",
     ],
   }),
-  deprecatedCompatRecord("doctor-final-layout-polish", {
+  removalPendingCompatRecord("doctor-final-layout-polish", {
     removeAfter: "2026-09-18",
     owner: "config",
     introduced: "2026-07-19",
@@ -159,7 +159,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
       "src/config/dead-config-keys.test.ts",
     ],
   }),
-  deprecatedCompatRecord("doctor-phase4-product-config-retirements", {
+  removalPendingCompatRecord("doctor-phase4-product-config-retirements", {
     removeAfter: "2026-09-18",
     owner: "config",
     introduced: "2026-07-19",
@@ -172,7 +172,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
       "src/config/dead-config-keys.test.ts",
     ],
   }),
-  deprecatedCompatRecord("doctor-media-models-consolidation", {
+  removalPendingCompatRecord("doctor-media-models-consolidation", {
     removeAfter: "2026-09-18",
     owner: "tools",
     introduced: "2026-07-19",
@@ -185,7 +185,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
       "src/config/dead-config-keys.test.ts",
     ],
   }),
-  deprecatedCompatRecord("doctor-runtime-tuning-knobs-purge", {
+  removalPendingCompatRecord("doctor-runtime-tuning-knobs-purge", {
     removeAfter: "2026-09-18",
     owner: "config",
     introduced: "2026-07-19",
@@ -198,7 +198,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
       "src/config/dead-config-keys.test.ts",
     ],
   }),
-  deprecatedCompatRecord("doctor-phase2-channel-dm-aliases", {
+  removalPendingCompatRecord("doctor-phase2-channel-dm-aliases", {
     removeAfter: "2026-09-18",
     owner: "channel",
     introduced: "2026-07-18",
@@ -208,7 +208,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
     docsPath: "/cli/doctor",
     tests: ["src/config/channel-alias-migration.test.ts", "src/config/dead-config-keys.test.ts"],
   }),
-  deprecatedCompatRecord("doctor-phase1-retired-runtime-config", {
+  removalPendingCompatRecord("doctor-phase1-retired-runtime-config", {
     removeAfter: "2026-09-18",
     owner: "config",
     introduced: "2026-07-18",
@@ -220,7 +220,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
     docsPath: "/cli/doctor",
     tests: ["src/commands/doctor/shared/legacy-config-migrations.runtime.retired.test.ts"],
   }),
-  deprecatedCompatRecord("doctor-root-default-model", {
+  removalPendingCompatRecord("doctor-root-default-model", {
     removeAfter: "2026-09-18",
     owner: "config",
     introduced: "2026-07-18",
@@ -230,7 +230,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
     docsPath: "/gateway/doctor",
     tests: ["src/commands/doctor/shared/legacy-config-migrations.runtime.retired.test.ts"],
   }),
-  deprecatedCompatRecord("doctor-session-prune-reset-aliases", {
+  removalPendingCompatRecord("doctor-session-prune-reset-aliases", {
     removeAfter: "2026-09-18",
     owner: "config",
     introduced: "2026-07-18",
@@ -240,7 +240,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
     docsPath: "/gateway/configuration-reference",
     tests: ["src/commands/doctor/shared/legacy-config-migrations.runtime.retired.test.ts"],
   }),
-  deprecatedCompatRecord("doctor-mcp-timeout-aliases", {
+  removalPendingCompatRecord("doctor-mcp-timeout-aliases", {
     removeAfter: "2026-09-18",
     owner: "config",
     introduced: "2026-07-18",
@@ -250,7 +250,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
     docsPath: "/cli/mcp",
     tests: ["src/commands/doctor/shared/legacy-config-migrations.runtime.retired.test.ts"],
   }),
-  deprecatedCompatRecord("doctor-cron-webhook-fallback", {
+  removalPendingCompatRecord("doctor-cron-webhook-fallback", {
     removeAfter: "2026-09-18",
     owner: "config",
     introduced: "2026-07-18",
@@ -260,7 +260,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
     docsPath: "/automation/cron-jobs",
     tests: ["src/commands/doctor/shared/legacy-config-migrations.runtime.retired.test.ts"],
   }),
-  deprecatedCompatRecord("doctor-canvas-host-root", {
+  removalPendingCompatRecord("doctor-canvas-host-root", {
     removeAfter: "2026-09-18",
     owner: "plugin",
     introduced: "2026-07-18",
@@ -270,7 +270,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
     docsPath: "/plugins",
     tests: ["src/plugins/setup-registry.migrations.test.ts"],
   }),
-  deprecatedCompatRecord("doctor-phase1-channel-noops-aliases", {
+  removalPendingCompatRecord("doctor-phase1-channel-noops-aliases", {
     removeAfter: "2026-09-18",
     owner: "channel",
     introduced: "2026-07-18",
@@ -325,7 +325,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
     replacement: "agents.*.sandbox.scope",
     docsPath: "/cli/doctor",
   }),
-  deprecatedCompatRecord("doctor-memory-search-owner-consolidation", {
+  removalPendingCompatRecord("doctor-memory-search-owner-consolidation", {
     removeAfter: "2026-09-18",
     owner: "config",
     introduced: "2026-07-19",
@@ -334,7 +334,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
     replacement: "memory.search; agents.list[].memory.search",
     docsPath: "/reference/memory-config",
   }),
-  deprecatedCompatRecord("doctor-session-typing-mode-owner", {
+  removalPendingCompatRecord("doctor-session-typing-mode-owner", {
     removeAfter: "2026-09-18",
     owner: "agent-runtime",
     introduced: "2026-07-19",
@@ -434,7 +434,7 @@ const DOCTOR_DEPRECATION_COMPAT_RECORDS = [
     notes:
       "WebChat is an internal control surface, not a configurable outbound channel. Runtime ignores the retired channel key; doctor removes stale config.",
   }),
-  deprecatedCompatRecord("doctor-tts-top-level-owner", {
+  removalPendingCompatRecord("doctor-tts-top-level-owner", {
     removeAfter: "2026-09-18",
     owner: "tts",
     introduced: "2026-07-19",
