@@ -686,8 +686,9 @@ export default definePluginEntry({
           if (!apiKey) {
             return null;
           }
+          const normalizedProviderId = PROVIDER_ID.trim().toLowerCase();
           const configuredProvider = Object.entries(ctx.config.models?.providers ?? {}).find(
-            ([providerId]) => providerId.trim().toLowerCase() === PROVIDER_ID,
+            ([providerId]) => providerId.trim().toLowerCase() === normalizedProviderId,
           )?.[1];
           const baseUrl = configuredProvider?.baseUrl?.trim() || DEFAULT_BASE_URL;
           return {
@@ -720,7 +721,11 @@ export default definePluginEntry({
 });
 `;
   const testSource = `import { describe, expect, it } from "vitest";
-import type { OpenClawPluginApi, ProviderPlugin } from "openclaw/plugin-sdk/plugin-entry";
+import type {
+  OpenClawPluginApi,
+  ProviderCatalogContext,
+  ProviderPlugin,
+} from "openclaw/plugin-sdk/plugin-entry";
 import entry from "./index.js";
 
 describe(${idLiteral}, () => {
@@ -737,6 +742,54 @@ describe(${idLiteral}, () => {
     expect(providers.map((provider) => provider.id)).toEqual([${idLiteral}]);
     expect(providers[0]?.label).toBe(${nameLiteral});
     expect(providers[0]?.envVars).toEqual([${envVarLiteral}]);
+  });
+
+  it("builds the provider catalog from public context", async () => {
+    const providers: ProviderPlugin[] = [];
+    const api = {
+      registerProvider(provider: ProviderPlugin) {
+        providers.push(provider);
+      },
+    } as Partial<OpenClawPluginApi>;
+
+    entry.register(api as OpenClawPluginApi);
+    const catalog = providers[0]?.catalog;
+    expect(catalog).toBeDefined();
+    if (!catalog) {
+      throw new Error("provider catalog is required");
+    }
+
+    const context = {
+      config: {
+        models: {
+          providers: {
+            [${idLiteral}.toUpperCase()]: {
+              baseUrl: " https://configured.example/v1 ",
+            },
+          },
+        },
+      },
+      env: {},
+      resolveProviderApiKey: () => ({ apiKey: "test-key" }),
+      resolveProviderAuth: () => ({
+        apiKey: "test-key",
+        mode: "api_key",
+        source: "env",
+      }),
+    } as ProviderCatalogContext;
+
+    const configured = await catalog.run(context);
+    expect(configured?.provider.baseUrl).toBe("https://configured.example/v1");
+    expect(configured?.provider.apiKey).toBe("test-key");
+
+    const fallback = await catalog.run({ ...context, config: {} });
+    expect(fallback?.provider.baseUrl).toBe("https://api.example.com/v1");
+
+    const withoutKey = await catalog.run({
+      ...context,
+      resolveProviderApiKey: () => ({ apiKey: undefined }),
+    });
+    expect(withoutKey).toBeNull();
   });
 });
 `;

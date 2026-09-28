@@ -828,6 +828,8 @@ describe("plugin authoring commands", () => {
     expect(indexSource).toContain("api.registerProvider");
     expect(indexSource).toContain("openclaw/plugin-sdk/provider-auth");
     expect(indexSource).toContain("ctx.resolveProviderApiKey(PROVIDER_ID)");
+    expect(indexSource).toContain("const normalizedProviderId = PROVIDER_ID.trim().toLowerCase()");
+    expect(indexSource).toContain("providerId.trim().toLowerCase() === normalizedProviderId");
     expect(indexSource).not.toContain("openclaw/plugin-sdk/provider-auth-api-key");
     expect(indexSource).not.toContain("openclaw/plugin-sdk/provider-catalog-shared");
     expect(indexSource).not.toContain("openclaw/plugin-sdk/provider-model-shared");
