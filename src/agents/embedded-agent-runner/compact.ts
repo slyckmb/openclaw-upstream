@@ -424,6 +424,7 @@ export async function compactEmbeddedAgentSessionDirect(
         provider: primaryProvider,
         model: primaryModel,
         requestedRouteResolution: "resolved",
+        requestedAuthProfileId: params.authProfileId,
         fallbacksOverride,
       })[0];
       const fallbackSessionKey = params.sandboxSessionKey ?? params.sessionKey ?? params.sessionId;
@@ -441,6 +442,7 @@ export async function compactEmbeddedAgentSessionDirect(
         userLockedAuthProfileId:
           params.authProfileIdSource === "user" ? params.authProfileId : undefined,
         abortSignal: params.abortSignal,
+        requestedAuthProfileId: params.authProfileId,
         prepareAgentHarnessRuntime: async ({ provider, model, agentHarnessRuntimeOverride }) => {
           await ensureSelectedAgentHarnessPlugin({
             config: params.config,
@@ -459,7 +461,8 @@ export async function compactEmbeddedAgentSessionDirect(
         run: async (provider, model, options) => {
           const isPrimaryCandidate =
             provider === resolvedPrimaryCandidate?.provider &&
-            model === resolvedPrimaryCandidate.model;
+            model === resolvedPrimaryCandidate.model &&
+            options?.authProfileId === resolvedPrimaryCandidate.authProfileId;
           const preservesPrimaryAuth =
             isPrimaryCandidate || primaryAuthProviders.has(resolveAuthProvider(provider));
           const authProfileId =
