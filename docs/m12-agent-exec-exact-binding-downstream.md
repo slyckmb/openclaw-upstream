@@ -1,7 +1,8 @@
 # M12 downstream OpenClaw exact-binding patch
 
-Parent: slyckmb/projects#12 (M12)  
-Acceptance/proof owner: slyckmb/projects#25  
+Parent: slyckmb/projects#12 (M12)
+
+Acceptance/proof owner: slyckmb/projects#25
 Upstream source: openclaw/openclaw#158600 and PR #158615
 
 ## Provenance
