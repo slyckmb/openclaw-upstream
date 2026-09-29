@@ -22,6 +22,7 @@ type MergeScenario = {
   mergeStateStatus?: string;
   mergeable?: string;
   recommendation?: "ready" | "needs_work";
+  repo?: string;
   reviewArtifacts?: "valid" | "invalid";
 };
 
@@ -197,7 +198,7 @@ gh_route() {
           ;;
       esac
       ;;
-    "repo view") printf 'openclaw/openclaw\\n' ;;
+    "repo view") printf '%s\\n' "$OPENCLAW_TEST_REPO" ;;
     "api "*)
       local api_arg
       for api_arg in "$@"; do
@@ -270,6 +271,7 @@ merge_run 123 "$OPENCLAW_TEST_AUTO_REQUESTED"
       OPENCLAW_TEST_MERGE_STATE_STATUS: scenario.mergeStateStatus ?? "BEHIND",
       OPENCLAW_TEST_POST_AUTO_META: postAutoMeta,
       OPENCLAW_TEST_PRE_AUTO_META: preAutoMeta,
+      OPENCLAW_TEST_REPO: scenario.repo ?? "openclaw/openclaw",
       OPENCLAW_TEST_REVIEW_ARTIFACTS: scenario.reviewArtifacts ?? "valid",
       OPENCLAW_TEST_REVIEW_RECOMMENDATION: scenario.recommendation ?? "ready",
       OPENCLAW_TEST_RG_CALLS: rgCalls,
@@ -341,7 +343,9 @@ describePosix("scripts/pr merge-run", () => {
 
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.calls).toContain(`plain pr merge 123 --squash --match-head-commit ${headSha}`);
-    expect(result.calls).toContain(`scripts/watch-pr-ci.mjs 123 ${headSha} --completion ci-run`);
+    expect(result.calls).toContain(
+      `scripts/watch-pr-ci.mjs 123 ${headSha} --repo openclaw/openclaw --completion ci-run`,
+    );
     expect(result.calls).toContain("plain pr checks 123 --required --json name,bucket,state");
     expect(result.calls).toContain("path pr view 123 --json state,isDraft");
     expect(result.calls).not.toContain("--required --watch");
@@ -358,6 +362,15 @@ describePosix("scripts/pr merge-run", () => {
     expect(result.rgCalls).toBe("");
     expect(result.lifecycle).toBe(
       "comment\nremote-cleanup\nworktree-cleanup .worktrees/pr-123\nbranch-cleanup temp/pr-123\nbranch-cleanup pr-123\nbranch-cleanup pr-123-prep\n",
+    );
+  });
+
+  it("passes the current fork repository to the CI watcher", () => {
+    const result = runMerge({ mergeStateStatus: "CLEAN", repo: "slyckmb/openclaw-upstream" });
+
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.calls).toContain(
+      `scripts/watch-pr-ci.mjs 123 ${headSha} --repo slyckmb/openclaw-upstream --completion ci-run`,
     );
   });
 
