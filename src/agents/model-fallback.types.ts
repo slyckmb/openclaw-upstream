@@ -8,6 +8,8 @@ import type { FailoverReason } from "./failover/signal.js";
 export type ModelCandidate = {
   provider: string;
   model: string;
+  /** Exact stored auth-profile binding for this candidate when explicitly requested. */
+  authProfileId?: string;
 };
 
 export type ModelFallbackRouteOrigin = "requested" | "configured-fallback" | "configured-primary";

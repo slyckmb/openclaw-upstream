@@ -865,6 +865,55 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
     });
   });
 
+  it("rebuilds runtime plans when a same-model fallback changes the exact auth binding", async () => {
+    const { runtimeAuthPlan, runtimePlan } = createPreparedCodexCompactionPlans();
+    ensureAuthProfileStoreMock.mockReturnValue({
+      version: 1,
+      profiles: {
+        "openai:profile-a": { type: "api_key", provider: "openai", key: "profile-a-key" },
+        "openai:profile-b": { type: "api_key", provider: "openai", key: "profile-b-key" },
+      },
+      order: { openai: ["openai:profile-a", "openai:profile-b"] },
+    });
+    getApiKeyForModelMock.mockImplementation(async (params?: { profileId?: string }) => ({
+      apiKey: "test-key",
+      mode: "api-key",
+      source: `profile:${params?.profileId ?? "openai:profile-a"}`,
+      profileId: params?.profileId ?? "openai:profile-a",
+    }));
+    sessionCompactImpl
+      .mockRejectedValueOnce(
+        Object.assign(new Error("primary compaction rate limited"), {
+          status: 429,
+          code: "rate_limit_exceeded",
+        }),
+      )
+      .mockResolvedValueOnce({
+        summary: "bound fallback summary",
+        firstKeptEntryId: "entry-fallback",
+        tokensBefore: 120,
+        details: { ok: true },
+      });
+
+    const result = await compactEmbeddedAgentSessionDirect({
+      ...wrappedCompactionArgs({ provider: "openai", model: "gpt-5.5" }),
+      authProfileId: "openai:profile-a",
+      authProfileIdSource: "user",
+      modelFallbacksOverride: ["openai/gpt-5.5@openai:profile-b"],
+      runtimeAuthPlan,
+      runtimePlan,
+    });
+
+    expect(result).toMatchObject({ ok: true, result: { summary: "bound fallback summary" } });
+    expect(buildAgentRuntimePlanMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai",
+        modelId: "gpt-5.5",
+        sessionAuthProfileId: "openai:profile-b",
+      }),
+    );
+  });
+
   it("rematerializes the downstream model for a resolved backup profile", async () => {
     getApiKeyForModelMock
       .mockRejectedValueOnce(new Error("missing SecretRef"))
