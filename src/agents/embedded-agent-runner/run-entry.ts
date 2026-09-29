@@ -37,6 +37,8 @@ import type { EmbeddedAgentRunResult, TraceAttempt } from "./types.js";
 type RunEntryCandidateOptions = {
   allowTransientCooldownProbe?: boolean;
   isFinalFallbackAttempt?: boolean;
+  /** Exact auth profile bound to this fallback candidate. */
+  authProfileId?: string;
   isFallbackRetry: boolean;
   modelRoutingProvenance: ModelFallbackAttemptProvenance;
   contextEngineLogicalTurnLease: ContextEngineLogicalTurnLease;
@@ -100,6 +102,7 @@ type EmbeddedAgentRunEntryParams<T extends EmbeddedAgentRunResult> = {
     provider: string;
     model: string;
     requestedRouteResolution?: ModelFallbackRouteResolution;
+    requestedAuthProfileId?: string;
     fallbacksOverride?: string[];
     agentDir?: string;
     userLockedAuthProfileId?: string;
@@ -503,6 +506,7 @@ export async function runEmbeddedAgentEntry<T extends EmbeddedAgentRunResult>(
         const result = await params.runCandidate(provider, model, {
           allowTransientCooldownProbe: options?.allowTransientCooldownProbe,
           isFinalFallbackAttempt: options?.isFinalFallbackAttempt,
+          ...(options.authProfileId ? { authProfileId: options.authProfileId } : {}),
           isFallbackRetry,
           modelRoutingProvenance: options.modelRoutingProvenance,
           contextEngineLogicalTurnLease,

@@ -424,6 +424,7 @@ export async function compactEmbeddedAgentSessionDirect(
         provider: primaryProvider,
         model: primaryModel,
         requestedRouteResolution: "resolved",
+        requestedAuthProfileId: params.authProfileId,
         fallbacksOverride,
       })[0];
       const fallbackSessionKey = params.sandboxSessionKey ?? params.sessionKey ?? params.sessionId;
@@ -441,6 +442,7 @@ export async function compactEmbeddedAgentSessionDirect(
         userLockedAuthProfileId:
           params.authProfileIdSource === "user" ? params.authProfileId : undefined,
         abortSignal: params.abortSignal,
+        requestedAuthProfileId: params.authProfileId,
         prepareAgentHarnessRuntime: async ({ provider, model, agentHarnessRuntimeOverride }) => {
           await ensureSelectedAgentHarnessPlugin({
             config: params.config,
@@ -456,19 +458,25 @@ export async function compactEmbeddedAgentSessionDirect(
         fallbacksOverride,
         classifyResult: ({ result, provider, model }) =>
           classifyCompactionFallbackResult(result, provider, model),
-        run: async (provider, model) => {
+        run: async (provider, model, options) => {
           const isPrimaryCandidate =
             provider === resolvedPrimaryCandidate?.provider &&
-            model === resolvedPrimaryCandidate.model;
+            model === resolvedPrimaryCandidate.model &&
+            options?.authProfileId === resolvedPrimaryCandidate.authProfileId;
           const preservesPrimaryAuth =
             isPrimaryCandidate || primaryAuthProviders.has(resolveAuthProvider(provider));
-          const authProfileId = preservesPrimaryAuth ? params.authProfileId : undefined;
+          const authProfileId =
+            options?.authProfileId ?? (preservesPrimaryAuth ? params.authProfileId : undefined);
           return await compactEmbeddedAgentSessionDirectOnce({
             ...params,
             provider,
             model,
             authProfileId,
-            authProfileIdSource: preservesPrimaryAuth ? params.authProfileIdSource : undefined,
+            authProfileIdSource: options?.authProfileId
+              ? "user"
+              : preservesPrimaryAuth
+                ? params.authProfileIdSource
+                : undefined,
             // The primary attempt retains its already prepared atomic plan. An
             // actual fallback may change route/auth class and must rebuild it.
             runtimeAuthPlan: isPrimaryCandidate ? params.runtimeAuthPlan : undefined,

@@ -50,6 +50,7 @@ import {
   type ModelFallbackStepHandler,
   recordFailedCandidateAttempt,
   resolveFallbackAuthScope,
+  resolveFallbackCandidateAuthProfileIds,
   resolveFallbackSoonestCooldownExpiry,
   resolveLiveSessionModelSwitchRedirectIndex,
   resolveModelFallbackCandidateAgentRuntime,
@@ -113,6 +114,8 @@ type RunWithModelFallbackParams<T> = {
   /** Optional explicit fallbacks list; when provided (even empty), replaces agents.defaults.model.fallbacks. */
   fallbacksOverride?: string[];
   requestedRouteResolution?: ModelFallbackRouteResolution;
+  /** Exact auth profile explicitly attached to the requested primary candidate. */
+  requestedAuthProfileId?: string;
   run: ModelFallbackRunFn<T>;
   onError?: ModelFallbackErrorHandler;
   onFallbackStep?: ModelFallbackStepHandler;
@@ -172,6 +175,7 @@ async function runWithModelFallbackInternal<T>(
     model: params.model,
     fallbacksOverride: params.fallbacksOverride,
     requestedRouteResolution: params.requestedRouteResolution,
+    requestedAuthProfileId: params.requestedAuthProfileId,
     manifestPlugins: params.manifestPlugins,
   });
   await params.prepareCandidateChain?.(candidates);
@@ -194,7 +198,7 @@ async function runWithModelFallbackInternal<T>(
   let lastError: unknown;
   let latestClassifiedResult: ModelFallbackClassifiedResult<T> | undefined;
   let exhaustionResult: ModelFallbackExhaustionResult<T> | undefined;
-  const cooldownProbeUsedProviders = new Set<string>();
+  const cooldownProbedSlots = new Set<string>();
   const tlsFailedProviders = new Set<string>();
   const observeDecision = async (decision: ModelFallbackDecisionParams) => {
     if (!params.onFallbackStep && !isModelFallbackDecisionLogEnabled()) {
@@ -311,19 +315,14 @@ async function runWithModelFallbackInternal<T>(
           profileId: userLockedAuthProfileId,
         }).eligible;
       if (!candidateHarnessAuth.skipsProviderAuthCooldown) {
-        const orderedProfileIds = authRuntime.resolveAuthProfileOrder({
+        candidateAuthProfileIds = resolveFallbackCandidateAuthProfileIds({
+          authRuntime,
           cfg: params.cfg,
           store: authStore,
-          provider: candidate.provider,
-          forModel: candidate.model,
+          candidate,
+          userLockedAuthProfileEligible,
+          userLockedAuthProfileId,
         });
-        candidateAuthProfileIds =
-          userLockedAuthProfileEligible && userLockedAuthProfileId
-            ? [
-                userLockedAuthProfileId,
-                ...orderedProfileIds.filter((profileId) => profileId !== userLockedAuthProfileId),
-              ]
-            : orderedProfileIds;
         authRuntime.maybeReprobeWhamBlockedProfiles({
           store: authStore,
           profileIds: candidateAuthProfileIds,
@@ -333,7 +332,9 @@ async function runWithModelFallbackInternal<T>(
       }
     }
     const candidateAuthScope = resolveFallbackAuthScope({
-      userLockedAuthProfileId: userLockedAuthProfileEligible ? userLockedAuthProfileId : undefined,
+      userLockedAuthProfileId:
+        candidate.authProfileId?.trim() ||
+        (userLockedAuthProfileEligible ? userLockedAuthProfileId : undefined),
       profileIds: candidateAuthProfileIds,
     });
 
@@ -372,7 +373,7 @@ async function runWithModelFallbackInternal<T>(
 
     let runOptions: Pick<ModelFallbackRunOptions, "allowTransientCooldownProbe"> | undefined;
     let attemptedDuringCooldown = false;
-    let transientProbeProviderForAttempt: string | null = null;
+    let transientProbeSlotForAttempt: string | null = null;
     if (
       authRuntime &&
       authStore &&
@@ -456,11 +457,15 @@ async function runWithModelFallbackInternal<T>(
           markProbeAttempt(now, probeThrottleKey);
         }
         if (shouldAllowCooldownProbeForReason(decision.reason)) {
-          // Probe at most once per provider per fallback run when all profiles
-          // are cooldowned. Re-probing every same-provider candidate can stall
-          // cross-provider fallback on providers with long internal retries.
+          // Probe at most once per provider (or per exact binding, when the
+          // candidate carries one) per fallback run. Re-probing every
+          // same-provider candidate can stall cross-provider fallback on
+          // providers with long internal retries; keying by binding when
+          // present keeps one bound candidate's probe slot from hiding a
+          // sibling binding's independent cooldown state.
           const isTransientCooldownReason = shouldUseTransientCooldownProbeSlot(decision.reason);
-          if (isTransientCooldownReason && cooldownProbeUsedProviders.has(candidate.provider)) {
+          const candidateProbeSlot = candidate.authProfileId?.trim() || candidate.provider;
+          if (isTransientCooldownReason && cooldownProbedSlots.has(candidateProbeSlot)) {
             const error = `Provider ${candidate.provider} is in cooldown (probe already attempted this run)`;
             pushAttempt(error, decision.reason, { authMode });
             await observeCandidateDecision("skip_candidate", {
@@ -472,7 +477,7 @@ async function runWithModelFallbackInternal<T>(
           }
           runOptions = { allowTransientCooldownProbe: true };
           if (isTransientCooldownReason) {
-            transientProbeProviderForAttempt = candidate.provider;
+            transientProbeSlotForAttempt = candidateProbeSlot;
           }
         }
         attemptedDuringCooldown = true;
@@ -492,6 +497,7 @@ async function runWithModelFallbackInternal<T>(
       options: {
         ...runOptions,
         isFinalFallbackAttempt: !hasRemainingCandidate,
+        ...(candidate.authProfileId ? { authProfileId: candidate.authProfileId } : {}),
         modelRoutingProvenance: {
           requestedProvider: params.provider,
           requestedModel: params.model,
@@ -611,10 +617,10 @@ async function runWithModelFallbackInternal<T>(
     if (isTranscriptNotContinuableError(err)) {
       throw err;
     }
-    if (transientProbeProviderForAttempt) {
+    if (transientProbeSlotForAttempt) {
       const probeFailureReason = describeFailoverError(err).reason;
       if (!shouldPreserveTransientCooldownProbeSlot(probeFailureReason)) {
-        cooldownProbeUsedProviders.add(transientProbeProviderForAttempt);
+        cooldownProbedSlots.add(transientProbeSlotForAttempt);
       }
     }
     // Context overflow errors should be handled by the inner runner's
