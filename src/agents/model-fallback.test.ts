@@ -847,6 +847,46 @@ describe("runWithModelFallback", () => {
     expect(error.attempts).toMatchObject([{ code }, { code }]);
   });
 
+  it("advances between same-model candidates with distinct exact auth bindings", async () => {
+    const run = vi.fn(
+      async (_provider: string, _model: string, options?: { authProfileId?: string }) => {
+        if (!options?.authProfileId) {
+          throw new FailoverError("primary unavailable", {
+            provider: "openai",
+            model: "gpt-5.6",
+            reason: "overloaded",
+          });
+        }
+        if (options.authProfileId === "openai:profile-a") {
+          throw new FailoverError("profile A unavailable", {
+            provider: "openai",
+            model: "gpt-5.6",
+            reason: "auth",
+            profileId: "openai:profile-a",
+          });
+        }
+        return "profile-b-ok";
+      },
+    );
+
+    const result = await runWithModelFallback({
+      cfg: makeCfg(),
+      provider: "openai",
+      model: "gpt-5.6",
+      requestedRouteResolution: "resolved",
+      fallbacksOverride: ["openai/gpt-5.6@openai:profile-a", "openai/gpt-5.6@openai:profile-b"],
+      skipAuthProfileRuntime: true,
+      run,
+    });
+
+    expect(result.result).toBe("profile-b-ok");
+    expect(run.mock.calls).toMatchObject([
+      ["openai", "gpt-5.6", { isFinalFallbackAttempt: false }],
+      ["openai", "gpt-5.6", { authProfileId: "openai:profile-a", isFinalFallbackAttempt: false }],
+      ["openai", "gpt-5.6", { authProfileId: "openai:profile-b", isFinalFallbackAttempt: true }],
+    ]);
+  });
+
   it("uses the opt-in auth skip cache on the second turn for the same session", async () => {
     const previous = process.env.OPENCLAW_FALLBACK_SKIP_TTL_MS;
     process.env.OPENCLAW_FALLBACK_SKIP_TTL_MS = "60000";
@@ -1278,6 +1318,60 @@ describe("runWithModelFallback", () => {
         provider: "openai",
         model: "gpt-4.1-mini",
         routeOrigin: "configured-primary",
+        routeResolution: "resolved",
+      },
+    ]);
+  });
+
+  it("preserves an exact auth binding on the requested candidate", () => {
+    expect(
+      testing.resolveFallbackCandidateRoutes({
+        cfg: makeCfg(),
+        provider: "openai",
+        model: "gpt-5.6",
+        requestedRouteResolution: "resolved",
+        requestedAuthProfileId: "openai:primary",
+        fallbacksOverride: [],
+      }),
+    ).toEqual([
+      {
+        provider: "openai",
+        model: "gpt-5.6",
+        authProfileId: "openai:primary",
+        routeOrigin: "requested",
+        routeResolution: "resolved",
+      },
+    ]);
+  });
+
+  it("preserves distinct auth-bound explicit fallback candidates", () => {
+    const candidates = testing.resolveFallbackCandidateRoutes({
+      cfg: makeCfg(),
+      provider: "openai",
+      model: "gpt-5.6",
+      requestedRouteResolution: "resolved",
+      fallbacksOverride: ["openai/gpt-5.6@openai:profile-a", "openai/gpt-5.6@openai:profile-b"],
+    });
+
+    expect(candidates).toEqual([
+      {
+        provider: "openai",
+        model: "gpt-5.6",
+        routeOrigin: "requested",
+        routeResolution: "resolved",
+      },
+      {
+        provider: "openai",
+        model: "gpt-5.6",
+        authProfileId: "openai:profile-a",
+        routeOrigin: "configured-fallback",
+        routeResolution: "resolved",
+      },
+      {
+        provider: "openai",
+        model: "gpt-5.6",
+        authProfileId: "openai:profile-b",
+        routeOrigin: "configured-fallback",
         routeResolution: "resolved",
       },
     ]);

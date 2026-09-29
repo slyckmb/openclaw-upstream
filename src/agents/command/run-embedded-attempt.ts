@@ -106,6 +106,7 @@ export async function runEmbeddedAgentAttempt(params: {
     defaultProvider,
     defaultModel,
     configuredDefaultAuthProfileId,
+    explicitRunAuthProfileId,
     visibilityPolicy,
     hasExplicitRunOverride,
     storedProviderOverride,
@@ -296,6 +297,7 @@ export async function runEmbeddedAgentAttempt(params: {
           provider,
           model,
           requestedRouteResolution: params.modelSelection.requestedRouteResolution,
+          requestedAuthProfileId: explicitRunAuthProfileId,
           agentDir,
           fallbacksOverride: effectiveFallbacksOverride,
           userLockedAuthProfileId:
@@ -484,6 +486,9 @@ export async function runEmbeddedAgentAttempt(params: {
                 [providerOverride, modelOverride, candidateRuntime],
               ),
               configuredAuthProfileId,
+              ...(runOptions.authProfileId
+                ? { candidateAuthProfileId: runOptions.authProfileId }
+                : {}),
               modelFallbacksOverride: effectiveFallbacksOverride,
               originalProvider: provider,
               cfg,
