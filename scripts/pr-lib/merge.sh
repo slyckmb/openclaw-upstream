@@ -136,8 +136,12 @@ merge_verify() {
   mark_pr_operation_side_effects_started
   # Wait only for the attached CI workflow here. The direct required-check
   # query below remains the merge authority, so optional contexts cannot stall it.
+  # Pass the current repository explicitly: watch-pr-ci defaults to the canonical
+  # upstream repo, while this maintainer flow is also used from forks.
+  local watch_repo
+  watch_repo=$(gh_plain repo view --json nameWithOwner --jq .nameWithOwner)
   node "$script_parent_dir/watch-pr-ci.mjs" "$pr" "$PREP_HEAD_SHA" \
-    --completion ci-run >.local/merge-checks-watch.log 2>&1 || true
+    --repo "$watch_repo" --completion ci-run >.local/merge-checks-watch.log 2>&1 || true
   local checks_json
   local checks_err_file
   local checks_exit_status
