@@ -1,4 +1,5 @@
 /** Resolves agent runtime config, including SecretRef materialization for agent command use. */
+import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import {
   getAgentRuntimeCommandSecretTargetIds,
   getAgentRuntimeOptionalCommandSecretPaths,
@@ -14,6 +15,7 @@ import type { RuntimeEnv } from "../runtime.js";
 import { getActiveSecretsRuntimeConfigSnapshot } from "../secrets/runtime-state.js";
 import { discoverConfigSecretTargetsByIds } from "../secrets/target-registry.js";
 import { listAgentEntries } from "./agent-scope.js";
+import { splitTrailingAuthProfile } from "./model-ref-profile.js";
 import { measureAgentStartup } from "./startup-timing.js";
 
 /** Loads runtime/source config and resolves command SecretRefs when the agent path needs them. */
@@ -22,6 +24,8 @@ export async function resolveAgentRuntimeConfig(
   params?: {
     runtimeTargetsChannelSecrets?: boolean;
     runtimeChannelSecretScope?: { channel: string; accountId?: string };
+    /** Exact fully-qualified run chain whose model-provider secrets may activate. */
+    runtimeExactModelRefs?: readonly string[];
   },
 ): Promise<OpenClawConfig> {
   const loadedRaw = getRuntimeConfig();
@@ -59,6 +63,7 @@ export async function resolveAgentRuntimeConfig(
           config: loadedRaw,
           includeChannelTargets,
           channelSecretScope,
+          modelProviderScope: resolveExactModelProviderScope(params?.runtimeExactModelRefs),
         });
         return (
           await (
@@ -172,10 +177,33 @@ function hasAgentRuntimeSecretRefs(params: {
   );
 }
 
+function resolveExactModelProviderScope(
+  refs: readonly string[] | undefined,
+): ReadonlySet<string> | undefined {
+  if (!refs?.length) {
+    return undefined;
+  }
+  const providers = new Set<string>();
+  for (const raw of refs) {
+    const modelRef = splitTrailingAuthProfile(raw).model.trim();
+    const slash = modelRef.indexOf("/");
+    if (slash <= 0 || slash >= modelRef.length - 1) {
+      return undefined;
+    }
+    const provider = normalizeProviderId(modelRef.slice(0, slash));
+    if (!provider) {
+      return undefined;
+    }
+    providers.add(provider);
+  }
+  return providers.size > 0 ? providers : undefined;
+}
+
 function resolveAgentRuntimeSecretTargets(params: {
   config: OpenClawConfig;
   includeChannelTargets: boolean;
   channelSecretScope?: { channel: string; accountId?: string };
+  modelProviderScope?: ReadonlySet<string>;
 }): {
   targetIds: Set<string>;
   allowedPaths?: Set<string>;
@@ -186,26 +214,41 @@ function resolveAgentRuntimeSecretTargets(params: {
     includeChannelTargets: params.includeChannelTargets,
   });
   const optionalActivePaths = getAgentRuntimeOptionalCommandSecretPaths(params.config);
-  if (params.includeChannelTargets || !params.channelSecretScope) {
-    return { targetIds: baseTargetIds, optionalActivePaths };
-  }
-  const channelTargets = getScopedChannelsCommandSecretTargets({
-    config: params.config,
-    channel: params.channelSecretScope.channel,
-    accountId: params.channelSecretScope.accountId,
-    defaultAccountWhenMissing: true,
-  });
+  const channelTargets =
+    !params.includeChannelTargets && params.channelSecretScope
+      ? getScopedChannelsCommandSecretTargets({
+          config: params.config,
+          channel: params.channelSecretScope.channel,
+          accountId: params.channelSecretScope.accountId,
+          defaultAccountWhenMissing: true,
+        })
+      : undefined;
   const targetIds = new Set(baseTargetIds);
-  for (const targetId of channelTargets.targetIds) {
+  for (const targetId of channelTargets?.targetIds ?? []) {
     targetIds.add(targetId);
   }
-  if (!channelTargets.allowedPaths) {
+  const channelAllowedPaths = channelTargets?.allowedPaths;
+  if (!params.modelProviderScope && !channelAllowedPaths) {
     return { targetIds, optionalActivePaths };
   }
 
-  // Account scoping must not exclude the agent's model/tool secrets from the same resolution.
-  const allowedPaths = new Set(channelTargets.allowedPaths);
-  for (const target of discoverConfigSecretTargetsByIds(params.config, baseTargetIds)) {
+  // Exact run chains narrow only model-provider credentials. Other agent-runtime
+  // secrets retain their normal command scope, while account-scoped channel
+  // resolution keeps its existing sibling-account isolation.
+  const allowedPaths = new Set(channelAllowedPaths ?? []);
+  for (const target of discoverConfigSecretTargetsByIds(params.config, targetIds)) {
+    const [root, section, providerId] = target.pathSegments;
+    if (root === "channels" && channelAllowedPaths && !channelAllowedPaths.has(target.path)) {
+      continue;
+    }
+    if (
+      root === "models" &&
+      section === "providers" &&
+      params.modelProviderScope &&
+      (!providerId || !params.modelProviderScope.has(normalizeProviderId(providerId)))
+    ) {
+      continue;
+    }
     allowedPaths.add(target.path);
   }
   return { targetIds, allowedPaths, optionalActivePaths };
