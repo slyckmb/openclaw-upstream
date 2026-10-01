@@ -68,3 +68,120 @@ Do not absorb upstream #155381 or #155382 unless a direct code dependency makes 
 - no secret values enter Airo or patch metadata;
 - upstream merge is not required for completion;
 - ordinary defects are fixed in this path; reconsider M11 only for genuine architectural failure.
+
+## Slice G finding (2026-10-01): provider-level SecretRef providers have no selectable exact profile
+
+Steps 1-5 of the ordered plan above are complete: #2 and the #7 forward-port are merged,
+and the deployed A2b runtime is `947f9112c9c836330f4c7790f677b0f06cc1be3d`, byte-identical
+to the merge of #7 then #8. Step 6 (the projects#25 live 2+ candidate proof) is blocked by
+the following gap, which is not a patch defect but a missing binding case.
+
+### The gap
+
+A provider whose credential is bound at the **provider level** rather than as a selectable
+per-candidate auth profile cannot satisfy exact candidate binding.
+
+Cloudflare resolves its credential through `models.providers.cloudflare.apiKey`, an
+exec-source SecretRef via the `wrangler` secret provider. No per-candidate OpenClaw auth
+profile exists for it, and none appears in any backup of `~/.openclaw/openclaw.json` back to
+Aug 23. Myclaw declares the binding on its side:
+
+```yaml
+# settings/model-policy.yaml -> cost_policy.zero_invariants
+cloudflare-workers-free-qwen3-8-27b:
+  provider: cloudflare
+  auth_profile: cloudflare-workers-ai-token   # no live counterpart
+  binding_scope: account
+  max_proof_age_seconds: 60
+```
+
+Myclaw projects that into the selector as `route@auth_profile`
+(`scripts/models:9011`) and dispatches it (`scripts/models:4996`). The runtime parses the
+`@profile` suffix as an **explicit** profile selection and hard-fails.
+
+### Exact failure site
+
+`src/agents/embedded-agent-runner/model.registry-resolution.ts:242-250`
+
+```ts
+if (explicitProfileId && !credential && configuredMode !== "aws-sdk") {
+  // Credential-scoped discovery cannot distinguish a missing model after its
+  // profile is removed.
+  throw createSelectedAuthProfileUnavailableError({ provider, modelId, profileId });
+}
+```
+
+`src/agents/auth-profiles/selection-error.ts` then emits
+`Selected auth profile "cloudflare-workers-ai-token" is unavailable.` with
+`code: selected_auth_profile_unavailable`, `reason: auth`, `status: 401`.
+
+That fail-closed behavior is **deliberate and correct** — it refuses to substitute another
+credential. It is the intended consequence of #7 (exact candidate binding precedence over
+ambient/session auth selection) plus #8 (exact-chain provider secret isolation).
+
+### Reproduction (live, ZERO, no paid spend)
+
+```
+$ openclaw agent --agent worker-zero \
+    --model 'cloudflare/@cf/qwen/qwen3.8-27b@cloudflare-workers-ai-token' ...
+preflight rejected before execution:
+  Selected auth profile "cloudflare-workers-ai-token" is unavailable.
+  | selected_auth_profile_unavailable
+```
+
+Reached through the sanctioned Myclaw front door, which fails closed the same way and spends
+no inference:
+
+```
+$ scripts/models onboard 'cloudflare/@cf/qwen/qwen3.8-27b' --role worker \
+    --source 'slyckmb/projects#25 M12 Slice G'
+{"summary":"HOLD","reason_code":"qualification_blocked",
+ "roles":{"worker":{"qualification_state":"blocked",
+   "reason":"... Selected auth profile \"cloudflare-workers-ai-token\" is unavailable."}}}
+```
+
+The same path also blocks the already-qualified sibling
+`cloudflare/@cf/zai-org/glm-4.7-flash`, so this is a **family** gap, not one route.
+
+Why GLM qualified on 2026-09-17 and cannot now: #7 merged 2026-09-29, after that
+qualification. Before #7 the `@profile` suffix was not retained as a per-candidate binding,
+so the Cloudflare route resolved by provider and qualified. GLM is additionally the configured
+`worker-zero` primary, so its binding resolves by default rather than by selection. This is
+exactly the defect projects#25 predicted: "a trailing `@profile` is not retained as a
+per-candidate binding."
+
+### Acceptance for this gap
+
+1. An exact candidate whose binding is a provider-level SecretRef resolves that provider
+   credential as an exact binding, never falling back to ambient/session selection and never
+   substituting another profile.
+2. Exact candidate binding precedence from #7 is preserved unchanged for selectable-profile
+   providers.
+3. The deliberate `selected_auth_profile_unavailable` fail-closed path is preserved for a
+   genuinely absent **explicitly selected** profile; a removed profile must not silently
+   resolve.
+4. Provider-level resolution does not promote unrelated provider SecretRefs into startup
+   requirements (preserve #8).
+5. Regression coverage: a Cloudflare-shaped provider-level-binding candidate executes on its
+   exact binding, under one `agent exec`, while an explicitly selected but absent profile
+   still fails closed.
+6. No credential value, secret authority, or generated config enters Myclaw or Airo; profile
+   resolution stays in the runtime's canonical owner context.
+
+### Candidate resolutions (not yet decided)
+
+- **(a) Runtime.** Teach exact candidate resolution to honor a provider-level binding when no
+  selectable profile exists. Keeps binding semantics in one place, but relaxes a deliberate
+  fail-closed path, so it needs strong negative tests.
+- **(b) Myclaw.** Distinguish a *selectable profile id* from a *provider-level binding label*
+  in `zero_invariants` and omit `@profile` from the selector for the latter. Smallest change
+  and no runtime weakening, but splits binding semantics across repos and requires the
+  exact-binding contract to accept a profile-less exact binding.
+- **(c) Operator live config.** Declare a real `cloudflare-workers-ai-token` OpenClaw auth
+  profile. Fastest unblock, but a credential/secret-ownership change needing its own reviewed
+  change and non-secret evidence, and it does not generalize to other provider-level
+  providers.
+
+The operator approved the bounded option of resolving this here rather than in Myclaw. That
+approval predates the failure-site evidence above, which narrows the decision, so all three
+remain open for the receiving manager to adjudicate.
