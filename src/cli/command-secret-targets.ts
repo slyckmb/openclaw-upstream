@@ -781,6 +781,18 @@ export function getModelsCommandSecretTargetIds(): Set<string> {
   return toTargetIdSet(STATIC_MODEL_TARGET_IDS);
 }
 
+/** Model-provider credential targets scoped to a selected provider. */
+export function getModelsCommandSecretTargetIdsForProvider(providerId: string): Set<string> {
+  const normalized = providerId.trim().toLowerCase();
+  if (!normalized) {
+    return toTargetIdSet(STATIC_MODEL_TARGET_IDS);
+  }
+  const scopedTargets = STATIC_MODEL_TARGET_IDS.map((pattern) =>
+    pattern.replace("models.providers.*", `models.providers.${normalized}`),
+  );
+  return toTargetIdSet(scopedTargets);
+}
+
 /** Credential targets required by memory embedding flows. */
 export function getMemoryEmbeddingCommandSecretTargetIds(): Set<string> {
   return toTargetIdSet(STATIC_MEMORY_EMBEDDING_TARGET_IDS);

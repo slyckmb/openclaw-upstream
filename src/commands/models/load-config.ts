@@ -1,6 +1,9 @@
 /** Config loader for model commands with command-scoped secret resolution. */
 import { resolveCommandConfigWithSecrets } from "../../cli/command-config-resolution.js";
-import { getModelsCommandSecretTargetIds } from "../../cli/command-secret-targets.js";
+import {
+  getModelsCommandSecretTargetIds,
+  getModelsCommandSecretTargetIdsForProvider,
+} from "../../cli/command-secret-targets.js";
 import {
   getRuntimeConfig,
   getRuntimeConfigSourceSnapshot,
@@ -21,16 +24,20 @@ export async function loadModelsConfigWithSource(params: {
   commandName: string;
   runtime?: RuntimeEnv;
   skipPluginValidation?: boolean;
+  provider?: string;
 }): Promise<LoadedModelsConfig> {
   const runtimeConfig = getRuntimeConfig(
     params.skipPluginValidation ? { skipPluginValidation: true } : undefined,
   );
   const pinnedSourceConfig = getRuntimeConfigSourceSnapshot();
   const sourceConfig = pinnedSourceConfig ?? runtimeConfig;
+  const targetIds = params.provider
+    ? getModelsCommandSecretTargetIdsForProvider(params.provider)
+    : getModelsCommandSecretTargetIds();
   const { resolvedConfig, diagnostics } = await resolveCommandConfigWithSecrets({
     config: runtimeConfig,
     commandName: params.commandName,
-    targetIds: getModelsCommandSecretTargetIds(),
+    targetIds,
     runtime: params.runtime,
   });
   // Keep the original source snapshot pinned so later config writes do not
@@ -48,6 +55,7 @@ export async function loadModelsConfig(params: {
   commandName: string;
   runtime?: RuntimeEnv;
   skipPluginValidation?: boolean;
+  provider?: string;
 }): Promise<OpenClawConfig> {
   return (await loadModelsConfigWithSource(params)).resolvedConfig;
 }
