@@ -1,6 +1,6 @@
 import { nativeApiKeyObservation } from "@openclaw/ai/transports";
 import type { AssistantMessage } from "../../../llm/types.js";
-import { looksLikeSecretSentinel } from "../../../secrets/sentinel.js";
+import { looksLikeSecretSentinel, resolveSecretSentinel } from "../../../secrets/sentinel.js";
 import type { ResolvedProviderAuth } from "../../model-auth.js";
 import { getModelProviderRequestTransport } from "../../provider-request-config.js";
 import type { AgentRuntimeCredentialSource } from "../../runtime-plan/types.js";
@@ -24,8 +24,19 @@ export function resolveEmbeddedDispatchBindingSource(input: {
     input.runtimeAuthReplaced ||
     !auth ||
     !input.resolvedApiKey?.trim() ||
-    looksLikeSecretSentinel(input.resolvedApiKey) ||
     auth.apiKey?.trim() !== input.resolvedApiKey.trim()
+  ) {
+    return "unknown";
+  }
+  // SecretRef-backed keys reach dispatch as process-local sentinels that egress
+  // later swaps for the real credential. Accept one only when the canonical
+  // resolver recognizes it (the result is discarded, never retained or emitted)
+  // and config declared it; an unregistered, malformed or ambient one stays unknown.
+  if (
+    looksLikeSecretSentinel(input.resolvedApiKey.trim()) &&
+    (input.credentialSource?.kind !== "direct" ||
+      input.credentialSource.authorization !== "declared" ||
+      resolveSecretSentinel(input.resolvedApiKey.trim()) === undefined)
   ) {
     return "unknown";
   }

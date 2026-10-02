@@ -215,17 +215,21 @@ export function createOpenAICompletionsTransportStreamFn(): StreamFn {
         const doneDetector = createSseDoneDetector();
         const baseFetch = buildGuardedModelFetch(model);
         const doneDetectingFetch: typeof globalThis.fetch = async (url, init) => {
-          const headers = new Headers(
-            init?.headers ?? (url instanceof Request ? url.headers : undefined),
-          );
           // Observe the SDK's actual request after client/header processing. A
           // matching resolved key alone is insufficient if another auth header wins.
-          if (
-            explicitKey &&
-            headers.get("authorization") === `Bearer ${apiKey}` &&
-            !["api-key", "x-api-key", "x-goog-api-key", "cookie"].some((name) => headers.has(name))
-          ) {
-            observeApiKey?.();
+          // Only callers that asked for the observation pay for header parsing.
+          if (explicitKey && observeApiKey) {
+            const headers = new Headers(
+              init?.headers ?? (url instanceof Request ? url.headers : undefined),
+            );
+            if (
+              headers.get("authorization") === `Bearer ${apiKey}` &&
+              !["api-key", "x-api-key", "x-goog-api-key", "cookie"].some((name) =>
+                headers.has(name),
+              )
+            ) {
+              observeApiKey();
+            }
           }
           const response = await baseFetch(url as never, init);
           if (!response.body || !response.ok) {
