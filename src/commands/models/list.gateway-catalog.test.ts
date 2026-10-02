@@ -104,11 +104,16 @@ describe("models list Gateway catalog", () => {
         },
         { provider: "openai", id: "gpt-5.4", name: "GPT 5.4", available: true },
       ],
+      providerOutcomes: [
+        { provider: "vercel-ai-gateway", status: "ready" },
+        { provider: "google", status: "auth-rejected" },
+      ],
     });
+    const testRuntime = runtime();
 
     await modelsListCommand(
       { json: true, refresh: true, provider: "vercel-ai-gateway" },
-      runtime() as never,
+      testRuntime as never,
     );
 
     expect(mocks.callGateway).toHaveBeenCalledWith(
@@ -122,5 +127,8 @@ describe("models list Gateway catalog", () => {
     expect(rows.map((row) => row.key)).toEqual([
       "vercel-ai-gateway/inclusionai/ling-3.1-flash-free",
     ]);
+    expect(testRuntime.error).toHaveBeenCalledWith(
+      "Model discovery could not refresh all providers. Showing the available Gateway model list.",
+    );
   });
 });

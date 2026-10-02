@@ -57,7 +57,7 @@ async function readGatewayModelRows(params: {
     agent?: string;
   };
   providerFilter?: string;
-}): Promise<ModelRow[] | null> {
+}): Promise<{ rows: ModelRow[]; providerOutcomes: ModelsListResult["providerOutcomes"] } | null> {
   if (params.opts.provider && !params.providerFilter) {
     return null;
   }
@@ -82,12 +82,15 @@ async function readGatewayModelRows(params: {
       ...(params.opts.refresh ? { refresh: true } : {}),
     },
   });
-  return result.models
-    .filter(
-      (model) =>
-        !params.providerFilter || normalizeProviderId(model.provider) === params.providerFilter,
-    )
-    .map(toGatewayModelRow);
+  return {
+    rows: result.models
+      .filter(
+        (model) =>
+          !params.providerFilter || normalizeProviderId(model.provider) === params.providerFilter,
+      )
+      .map(toGatewayModelRow),
+    providerOutcomes: result.providerOutcomes,
+  };
 }
 
 type PromotionsModule = typeof import("./list.promotions.js");
@@ -136,12 +139,23 @@ export async function modelsListCommand(
   })();
   const humanReadable = !opts.json && !opts.plain;
   if (!opts.local) {
-    const gatewayRows = await readGatewayModelRows({ opts, providerFilter: parsedProviderFilter });
-    if (gatewayRows !== null) {
-      if (gatewayRows.length === 0 && !opts.json && !opts.plain) {
+    const gatewayResult = await readGatewayModelRows({
+      opts,
+      providerFilter: parsedProviderFilter,
+    });
+    if (gatewayResult !== null) {
+      if (
+        opts.refresh &&
+        gatewayResult.providerOutcomes?.some((outcome) => outcome.status !== "ready")
+      ) {
+        runtime.error(
+          "Model discovery could not refresh all providers. Showing the available Gateway model list.",
+        );
+      }
+      if (gatewayResult.rows.length === 0 && !opts.json && !opts.plain) {
         runtime.log("No models found.");
       } else {
-        printModelTable(gatewayRows, runtime, opts);
+        printModelTable(gatewayResult.rows, runtime, opts);
       }
       requestExitAfterOneShotOutput(runtime);
       return;
