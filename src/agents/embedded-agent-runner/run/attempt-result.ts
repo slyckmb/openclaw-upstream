@@ -211,6 +211,9 @@ export function completeEmbeddedAttemptResult(
     lastAssistant: settled.lastAssistant,
     currentAttemptAssistant: settled.currentAttemptAssistant,
     currentAttemptCompletedAssistant: settled.currentAttemptCompletedAssistant,
+    bindingStatus: sessionRuntime.transport.getBindingStatus?.(
+      settled.currentAttemptCompletedAssistant,
+    ) ?? { kind: "unknown" },
     successfulNestedToolNames: settled.successfulNestedToolNames,
     attemptUsage: settled.attemptUsage,
     promptCache: sessionRuntime.state.promptCache,

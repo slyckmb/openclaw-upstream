@@ -46,6 +46,10 @@ import {
 
 export { buildOpenAICompletionsParams } from "./openai-completions-params.js";
 
+/** Private per-call observation; never serialized or included in provider payloads. */
+export const nativeApiKeyObservation = Symbol("native-api-key-observation");
+type NativeObservedOptions = { [nativeApiKeyObservation]?: () => void };
+
 function assertOpenAICompletionsPayloadHasConversationTurn(
   params: Record<string, unknown>,
   model: Model,
@@ -201,11 +205,28 @@ export function createOpenAICompletionsTransportStreamFn(): StreamFn {
       let firstEventAbort: ReturnType<typeof createFirstStreamEventAbortController> | undefined;
       try {
         const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
+        // SAFETY: the optional symbol is an internal callback carried alongside standard stream options.
+        const observeApiKey = (options as NativeObservedOptions | undefined)?.[
+          nativeApiKeyObservation
+        ];
+        const explicitKey = Boolean(options?.apiKey) && options?.apiKey === apiKey;
         // The OpenAI SDK consumes the SSE terminal without yielding it. Observe
         // the raw body so native tool calls can distinguish clean DONE from EOF.
         const doneDetector = createSseDoneDetector();
         const baseFetch = buildGuardedModelFetch(model);
         const doneDetectingFetch: typeof globalThis.fetch = async (url, init) => {
+          const headers = new Headers(
+            init?.headers ?? (url instanceof Request ? url.headers : undefined),
+          );
+          // Observe the SDK's actual request after client/header processing. A
+          // matching resolved key alone is insufficient if another auth header wins.
+          if (
+            explicitKey &&
+            headers.get("authorization") === `Bearer ${apiKey}` &&
+            !["api-key", "x-api-key", "x-goog-api-key", "cookie"].some((name) => headers.has(name))
+          ) {
+            observeApiKey?.();
+          }
           const response = await baseFetch(url as never, init);
           if (!response.body || !response.ok) {
             return response;

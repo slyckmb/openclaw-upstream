@@ -56,6 +56,7 @@ function buildRestrictedFinalizationAttempt(
     contextTokenBudget: attempt.contextTokenBudget,
     contextWindowInfo: attempt.contextWindowInfo,
     resolvedApiKey: attempt.resolvedApiKey,
+    bindingAuthSource: attempt.bindingAuthSource,
     authProfileId: attempt.authProfileId,
     authProfileIdSource: attempt.authProfileIdSource,
     provider: attempt.provider,

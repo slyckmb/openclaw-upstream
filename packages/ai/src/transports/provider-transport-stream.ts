@@ -34,6 +34,8 @@ type ProviderTransportStreamContext = {
   agentDir?: string;
   workspaceDir?: string;
   env?: NodeJS.ProcessEnv;
+  /** Called only for a transport implemented here, never a plugin-owned stream. */
+  onNativeTransportSelected?: () => void;
 };
 
 function createProviderOwnedGoogleTransportStreamFn(
@@ -86,12 +88,16 @@ function createSupportedTransportStreamFn(
   switch (model.api) {
     case "openai-responses":
     case "openai-chatgpt-responses":
+      ctx?.onNativeTransportSelected?.();
       return createOpenAIResponsesTransportStreamFn();
     case "openai-completions":
+      ctx?.onNativeTransportSelected?.();
       return createOpenAICompletionsTransportStreamFn();
     case "azure-openai-responses":
+      ctx?.onNativeTransportSelected?.();
       return createAzureOpenAIResponsesTransportStreamFn();
     case "anthropic-messages":
+      ctx?.onNativeTransportSelected?.();
       return createAnthropicMessagesTransportStreamFn();
     case "google-generative-ai":
       return createProviderOwnedGoogleTransportStreamFn(model, ctx);
