@@ -6,6 +6,7 @@ import { streamSimple } from "../../llm/stream.js";
 import type { Model } from "../../llm/types.js";
 import { createEmbeddedModelState } from "../embedded-agent-subscribe.model-state.js";
 import { makeAssistantMessageFixture } from "../test-helpers/assistant-message-fixtures.js";
+import { wrapStreamFnTrimToolCallNames } from "./run/attempt-tool-call-stream-normalization.js";
 import { resolveEmbeddedDispatchBindingSource } from "./run/binding-status.js";
 import { resolveEmbeddedAgentStream as resolveStream } from "./stream-resolution.js";
 
@@ -99,6 +100,23 @@ describe("physical binding observation", () => {
     expect(resolved.getBindingStatus?.(first)).toEqual({ kind: "unknown" });
     expect(resolved.getBindingStatus?.({ ...second })).toEqual(positive);
     expect(resolved.getBindingStatus?.(undefined)).toEqual({ kind: "unknown" });
+  });
+
+  it("composes with the production in-place result guards without recursion", async () => {
+    const resolved = prepare();
+    const model = { provider: "fixture", id: "fixture-model", api: "openai-completions" } as never;
+    // Real production guard: captures `result.bind(stream)` and replaces `result` in place.
+    const guarded = wrapStreamFnTrimToolCallNames(resolved.streamFn, new Set(["read"]));
+    const message = await (await guarded(model, { messages: [] })).result();
+    expect(message.stopReason).toBe("stop");
+    expect(resolved.getBindingStatus?.(message)).toEqual(positive);
+
+    // Any further decorator using the same capture-and-replace pattern must also complete.
+    const stream = await resolved.streamFn(model, { messages: [] });
+    const captured = stream.result.bind(stream);
+    stream.result = async () => captured();
+    const second = await stream.result();
+    expect(resolved.getBindingStatus?.(second)).toEqual(positive);
   });
 
   it("preserves physical correlation through the canonical completed-assistant snapshots", async () => {

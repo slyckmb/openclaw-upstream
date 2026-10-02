@@ -117,19 +117,16 @@ export function createEmbeddedBindingObserver() {
           },
         };
         const response = await stream(model, context, observedOptions);
-        return new Proxy(response, {
-          get(target, property, receiver) {
-            if (property === "result") {
-              return async () => {
-                const message = await target.result();
-                // Preserve native result identity and its other private provenance.
-                return Object.assign(message, { [physicalBinding]: token });
-              };
-            }
-            const value = Reflect.get(target, property, receiver);
-            return typeof value === "function" ? value.bind(target) : value;
-          },
-        });
+        // Decorate in place, like the existing stream guards: capture the
+        // original result once so later decorators that rebind or replace
+        // `result` never re-enter this wrapper.
+        const originalResult = response.result.bind(response);
+        response.result = async () => {
+          const message = await originalResult();
+          // Preserve native result identity and its other private provenance.
+          return Object.assign(message, { [physicalBinding]: token });
+        };
+        return response;
       };
     },
     getBindingStatus(this: void, assistant: AssistantMessage | undefined): AgentBindingStatus {
