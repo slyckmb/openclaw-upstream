@@ -1,16 +1,24 @@
 /** Implementation of `openclaw models list`. */
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
+import type {
+  ModelChoice,
+  ModelsListResult,
+} from "../../../packages/gateway-protocol/src/schema/agents-models-skills.js";
 import { sanitizeTerminalText } from "../../../packages/terminal-core/src/safe-text.js";
 import type { PreparedAgentCredentialModes } from "../../agents/agent-auth-credential-modes.js";
 import { resolveConfiguredModelEntries } from "../../agents/configured-model-entries.js";
 import { DEFAULT_PROVIDER } from "../../agents/defaults.js";
 import { resolveLegacyInheritedAuthDir } from "../../agents/legacy-inherited-auth-dir.js";
+import { modelKey } from "../../agents/model-ref-shared.js";
 import { resolveCliRuntimeExecutionProvider } from "../../agents/model-runtime-aliases.js";
 import { parseModelRef } from "../../agents/model-selection-normalize.js";
 import { formatCliCommand } from "../../cli/command-format.js";
 import { ExpectedCliError } from "../../cli/failure-output.js";
 import { requestExitAfterOneShotOutput } from "../../cli/one-shot-exit.js";
+import { getRuntimeConfig } from "../../config/config.js";
+import { callGateway, isImplicitLocalGatewayTarget } from "../../gateway/call.js";
+import { readActiveGatewayLockIdentity } from "../../infra/gateway-lock.js";
 import type { ModelRegistry } from "../../llm/model-registry.js";
 import type { Model } from "../../llm/types.js";
 import { loadManifestMetadataSnapshot } from "../../plugins/manifest-contract-eligibility.js";
@@ -26,6 +34,61 @@ import { createModelCatalogProviderAliasCanonicalizer } from "./provider-aliases
 import { resolveModelsTargetAgent } from "./shared.js";
 
 const DISPLAY_MODEL_PARSE_OPTIONS = { allowPluginNormalization: false } as const;
+const MODEL_CATALOG_REFRESH_TIMEOUT_MS = 210_000;
+
+function toGatewayModelRow(model: ModelChoice): ModelRow {
+  return {
+    key: modelKey(model.provider, model.id),
+    name: model.name,
+    input: model.input?.join("+") || "-",
+    contextWindow: model.contextWindow ?? null,
+    local: null,
+    available: model.available ?? null,
+    tags: [...new Set([...(model.tags ?? []), ...(model.alias ? [`alias:${model.alias}`] : [])])],
+    missing: false,
+  };
+}
+
+async function readGatewayModelRows(params: {
+  opts: {
+    all?: boolean;
+    refresh?: boolean;
+    provider?: string;
+    agent?: string;
+  };
+  providerFilter?: string;
+}): Promise<ModelRow[] | null> {
+  if (params.opts.provider && !params.providerFilter) {
+    return null;
+  }
+  const cfg = getRuntimeConfig({ skipPluginValidation: true });
+  const localTarget = await isImplicitLocalGatewayTarget({ config: cfg });
+  const explicitPort = Boolean(process.env.OPENCLAW_GATEWAY_PORT?.trim());
+  const gatewayOwner =
+    localTarget && !explicitPort
+      ? await readActiveGatewayLockIdentity({ requireInspection: true })
+      : undefined;
+  if (localTarget && !explicitPort && !gatewayOwner) {
+    return null;
+  }
+  const result = await callGateway<ModelsListResult>({
+    config: cfg,
+    method: "models.list",
+    ...(params.opts.refresh ? { timeoutMs: MODEL_CATALOG_REFRESH_TIMEOUT_MS } : {}),
+    ...(gatewayOwner ? { localPortOverride: gatewayOwner.port } : {}),
+    params: {
+      ...(params.opts.agent?.trim() ? { agentId: params.opts.agent.trim() } : {}),
+      view: params.opts.all || params.providerFilter ? "all" : "default",
+      ...(params.opts.refresh ? { refresh: true } : {}),
+    },
+  });
+  return result.models
+    .filter(
+      (model) =>
+        !params.providerFilter || normalizeProviderId(model.provider) === params.providerFilter,
+    )
+    .map(toGatewayModelRow);
+}
 
 type PromotionsModule = typeof import("./list.promotions.js");
 type RegistryModule = typeof import("./list.registry.js");
@@ -45,6 +108,7 @@ const rowSourcesModuleLoader = createLazyImportLoader<RowSourcesModule>(
 export async function modelsListCommand(
   opts: {
     all?: boolean;
+    refresh?: boolean;
     local?: boolean;
     provider?: string;
     agent?: string;
@@ -71,6 +135,18 @@ export async function modelsListCommand(
     return parsed?.provider ?? normalizeLowercaseStringOrEmpty(rawProviderFilter);
   })();
   const humanReadable = !opts.json && !opts.plain;
+  if (!opts.local) {
+    const gatewayRows = await readGatewayModelRows({ opts, providerFilter: parsedProviderFilter });
+    if (gatewayRows !== null) {
+      if (gatewayRows.length === 0 && !opts.json && !opts.plain) {
+        runtime.log("No models found.");
+      } else {
+        printModelTable(gatewayRows, runtime, opts);
+      }
+      requestExitAfterOneShotOutput(runtime);
+      return;
+    }
+  }
   const [
     { loadAuthProfileStoreWithoutExternalProfiles },
     { resolveAgentWorkspaceDir },
