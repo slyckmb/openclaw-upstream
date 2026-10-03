@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import * as providerTransportStream from "@openclaw/ai/transports";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -25,6 +26,7 @@ import {
 } from "../../sessions/agent-session-loop-correctness.test-support.js";
 import { SessionManager } from "../../sessions/index.js";
 import { castAgentMessage } from "../../test-helpers/agent-message-fixtures.js";
+import { makeAssistantMessageFixture } from "../../test-helpers/assistant-message-fixtures.js";
 import { readLastCacheTtlTimestamp } from "../cache-ttl.js";
 import { testing as extraParamsTesting } from "../extra-params.test-support.js";
 import {
@@ -43,6 +45,14 @@ import {
 } from "./attempt-stream-settle.js";
 
 const registerProviderStreamForModel = vi.hoisted(() => vi.fn());
+
+vi.mock("@openclaw/ai/transports", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@openclaw/ai/transports")>();
+  return {
+    ...actual,
+    createBoundaryAwareStreamFnForModel: vi.fn(actual.createBoundaryAwareStreamFnForModel),
+  };
+});
 
 vi.mock("../../provider-stream.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../provider-stream.js")>()),
@@ -483,6 +493,68 @@ describe("prepareEmbeddedAttemptTransport", () => {
     expect(result.compactionReplayEnabled).toBe(testCase.replayEnabled);
     expect(result.serverToolClearingEnabled).toBe(testCase.clearing);
   });
+
+  it.each([
+    { source: "direct-api-key", native: true, expected: "non-profile" },
+    { source: "profile", native: true, expected: "profile-bound" },
+    { source: undefined, native: true, expected: "unknown" },
+    { source: "direct-api-key", native: false, expected: "unknown" },
+  ] as const)(
+    "installs producer binding observation on the production stream: $source (native: $native)",
+    async ({ source, native, expected }) => {
+      const { input, session } = createTransportFixture({
+        compaction: false,
+        pruning: false,
+        apiKey: "test-api-key",
+      });
+      const model = {
+        api: "openai-completions",
+        provider: "fixture",
+        id: "fixture-model",
+        baseUrl: "https://example.invalid/v1",
+      };
+      Object.assign(input.attempt, {
+        model,
+        modelId: model.id,
+        provider: model.provider,
+        resolvedApiKey: "synthetic-private-key",
+        bindingAuthSource: source,
+      });
+      vi.mocked(providerTransportStream.createBoundaryAwareStreamFnForModel).mockImplementationOnce(
+        (_model, context) => {
+          if (native) {
+            context?.onNativeTransportSelected?.();
+          }
+          return (_m, _c, options) => {
+            if (native) {
+              (options as { [providerTransportStream.nativeApiKeyObservation]?: () => void })?.[
+                providerTransportStream.nativeApiKeyObservation
+              ]?.();
+            }
+            const message = makeAssistantMessageFixture({
+              provider: model.provider,
+              model: model.id,
+              stopReason: "stop",
+            });
+            const stream = createAssistantMessageEventStream();
+            stream.push({ type: "done", reason: "stop", message });
+            stream.end(message);
+            return stream;
+          };
+        },
+      );
+
+      const prepared = await prepareEmbeddedAttemptTransport(input);
+      const stream = await session.agent.streamFn?.(model as never, { messages: [] }, {});
+      const message = await stream?.result();
+
+      expect(prepared.getBindingStatus).toBeTypeOf("function");
+      expect(prepared.getBindingStatus?.(message)?.kind).toBe(expected);
+      expect(JSON.stringify(prepared.getBindingStatus?.(message))).not.toContain(
+        "synthetic-private-key",
+      );
+    },
+  );
 
   describe.each([false, true])("with code mode enabled: %s", (codeModeControlsEnabled) => {
     it.each([

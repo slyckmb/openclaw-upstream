@@ -10,6 +10,7 @@ import {
   reportEmbeddedRunSuccessfulAuthBinding,
 } from "./auth-profile-success.js";
 import { TRUNCATED_REPLY_NOTICE_TEXT } from "./incomplete-turn-resolution.js";
+import { projectEmbeddedTerminalBinding } from "./terminal-binding-status.js";
 import { resolveEmbeddedRunAttemptTerminalState } from "./terminal-outcome.js";
 import { resolveEmbeddedRunTerminal } from "./terminal-resolution.js";
 import {
@@ -32,6 +33,116 @@ const REASONING_ONLY_RETRY_INSTRUCTION =
 
 describe("terminal resolution", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it.each([
+    { kind: "non-profile", authMode: "api-key", cliSession: "none" },
+    { kind: "profile-bound" },
+    { kind: "unknown" },
+    undefined,
+  ] as const)("projects only the winning attempt binding status (%j)", async (bindingStatus) => {
+    const assistant = buildEmbeddedRunnerAssistant({});
+    const attempt = makeEmbeddedRunnerAttempt({
+      bindingStatus,
+      agentHarnessId: "openclaw",
+      assistantTexts: ["Done."],
+      currentAttemptCompletedAssistant: assistant,
+      currentAttemptAssistant: assistant,
+      lastAssistant: assistant,
+    });
+    const resolved = await resolveEmbeddedRunTerminal(
+      makeTerminalInput({
+        attempt,
+        agentMeta: {
+          sessionId: "fixture-session",
+          provider: "openai",
+          model: "fixture-model",
+          bindingStatus: { kind: "non-profile", authMode: "api-key", cliSession: "none" },
+        },
+      }),
+    );
+    expect(resolved.action).toBe("complete");
+    if (resolved.action !== "complete") {
+      throw new Error("expected completion");
+    }
+    expect(resolved.result.meta.agentMeta?.bindingStatus).toEqual(
+      bindingStatus ?? { kind: "unknown" },
+    );
+  });
+
+  it.each(["aborted", "failed"] as const)("does not attest a %s attempt", async (kind) => {
+    const assistant = buildEmbeddedRunnerAssistant({ stopReason: "toolUse" });
+    const attempt = makeEmbeddedRunnerAttempt({
+      terminal:
+        kind === "failed"
+          ? { kind: "failed", source: "prompt", error: new Error("fixture failure") }
+          : { kind: "aborted", source: "external" },
+      bindingStatus: { kind: "non-profile", authMode: "api-key", cliSession: "none" },
+      assistantTexts: ["partial"],
+      currentAttemptCompletedAssistant: assistant,
+      currentAttemptAssistant: assistant,
+      lastAssistant: assistant,
+    });
+    const resolved = await resolveEmbeddedRunTerminal(makeTerminalInput({ attempt }));
+    expect(resolved.action).toBe("complete");
+    if (resolved.action !== "complete") {
+      throw new Error("expected completion");
+    }
+    expect(resolved.result.meta.agentMeta?.bindingStatus).toEqual({ kind: "unknown" });
+  });
+
+  it("does not let the binding projector depend on a separately supplied failure error", () => {
+    const assistant = buildEmbeddedRunnerAssistant({ stopReason: "toolUse" });
+    const attempt = makeEmbeddedRunnerAttempt({
+      terminal: { kind: "failed", source: "prompt", error: new Error("tool failed") },
+      currentAttemptCompletedAssistant: assistant,
+      currentAttemptAssistant: assistant,
+      lastAssistant: assistant,
+      bindingStatus: { kind: "non-profile", authMode: "api-key", cliSession: "none" },
+    });
+    const input = makeTerminalInput({ attempt });
+    expect(projectEmbeddedTerminalBinding(input, undefined).bindingStatus).toEqual({
+      kind: "unknown",
+    });
+  });
+
+  it.each([
+    "no-success",
+    "profile-conflict",
+    "cli-binding",
+    "plugin-auth",
+    "plugin-transport",
+  ] as const)("refuses non-profile with %s evidence", async (kind) => {
+    const assistant = buildEmbeddedRunnerAssistant({});
+    const attempt = makeEmbeddedRunnerAttempt({
+      agentHarnessId: "openclaw",
+      bindingStatus: { kind: "non-profile", authMode: "api-key", cliSession: "none" },
+      assistantTexts: ["Done."],
+      currentAttemptAssistant: assistant,
+      lastAssistant: assistant,
+      currentAttemptCompletedAssistant: kind === "no-success" ? undefined : assistant,
+    });
+    const resolved = await resolveEmbeddedRunTerminal(
+      makeTerminalInput({
+        attempt,
+        authProfileId: kind === "profile-conflict" ? "synthetic-profile" : undefined,
+        pluginHarnessOwnsAuthBootstrap: kind === "plugin-auth",
+        pluginHarnessOwnsTransport: kind === "plugin-transport",
+        agentMeta: {
+          sessionId: "fixture-session",
+          provider: "fixture",
+          model: "fixture-model",
+          ...(kind === "cli-binding"
+            ? { cliSessionBinding: { sessionId: "synthetic-cli-session" } }
+            : {}),
+        },
+      }),
+    );
+    expect(resolved.action).toBe("complete");
+    if (resolved.action !== "complete") {
+      throw new Error("expected terminal completion");
+    }
+    expect(resolved.result.meta.agentMeta?.bindingStatus).toEqual({ kind: "unknown" });
+  });
 
   it.each([false, true])(
     "resolves an empty post-tool turn using committed media delivery (delivered: %s)",

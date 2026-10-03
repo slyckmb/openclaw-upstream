@@ -16,12 +16,7 @@ import { AGENT_LANE_SUBAGENT } from "../../lanes.js";
 import type { ResolvedProviderAuth } from "../../model-auth.js";
 import { log } from "../logger.js";
 import type { EmbeddedRunReplayState } from "../replay-state.js";
-import type {
-  EmbeddedAgentMeta,
-  EmbeddedAgentRunResult,
-  EmbeddedRunFailureSignal,
-  TraceAttempt,
-} from "../types.js";
+import type { EmbeddedAgentRunResult, EmbeddedRunFailureSignal, TraceAttempt } from "../types.js";
 import { copyAttemptDeliveryState } from "./attempt-delivery-state.js";
 import {
   hasAttemptTerminalState,
@@ -52,6 +47,7 @@ import {
   YIELD_DIAGNOSTIC_TEXT,
 } from "./incomplete-turn-resolution.js";
 import type { RunEmbeddedAgentInternalParams as TerminalRunParams } from "./internal-params.js";
+import { projectEmbeddedTerminalBinding } from "./terminal-binding-status.js";
 import {
   isEmbeddedRunTerminalAbort,
   isEmbeddedRunTerminalInterrupted,
@@ -198,7 +194,7 @@ export async function resolveEmbeddedRunTerminal(input: {
   recoveredFinalAssistantPayloadsAfterPromptTimeout?: EmbeddedAgentRunResult["payloads"];
   finalAssistantVisibleText?: string;
   finalAssistantRawText?: string;
-  agentMeta: EmbeddedAgentMeta;
+  agentMeta: NonNullable<EmbeddedAgentRunResult["meta"]["agentMeta"]>;
   attemptToolSummary: EmbeddedAgentRunResult["meta"]["toolSummary"];
   failureSignal?: EmbeddedRunFailureSignal;
   terminalToolFailure?: EmbeddedAgentRunResult["meta"]["terminalToolFailure"];
@@ -652,7 +648,7 @@ async function completeEmbeddedRun(
         : {}),
       meta: {
         durationMs: Date.now() - input.startedAtMs,
-        agentMeta: input.agentMeta,
+        agentMeta: projectEmbeddedTerminalBinding(input, error),
         aborted: terminalAborted,
         systemPromptReport: input.attempt.systemPromptReport,
         finalPromptText: input.attempt.finalPromptText,

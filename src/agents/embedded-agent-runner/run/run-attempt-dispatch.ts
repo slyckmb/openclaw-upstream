@@ -36,6 +36,7 @@ import { applyResolvedToolPromptFinalizer } from "./attempt-prompt-support.js";
 import { EMBEDDED_RUN_ATTEMPT_DISPATCH_STAGE } from "./attempt-stage-timing.js";
 import { resolveAttemptDispatchApiKey } from "./auth-store.js";
 import { runEmbeddedAttemptWithBackend } from "./backend.js";
+import { resolveEmbeddedDispatchBindingSource } from "./binding-status.js";
 import type { PreparedEmbeddedRunInput } from "./execution-context.js";
 import { resolveEmbeddedAttemptBasePrompt } from "./helpers.js";
 import type { EmbeddedRunAttemptInternalParams } from "./internal-params.js";
@@ -520,6 +521,14 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
       params.config,
     ),
     resolvedApiKey: resolvedAttemptApiKey,
+    bindingAuthSource: resolveEmbeddedDispatchBindingSource({
+      credentialSource: runtime.activePreparedAuthPlan.credentialSource,
+      authProfileId: runtime.lastProfileId,
+      apiKeyInfo: runtime.apiKeyInfo,
+      resolvedApiKey: resolvedAttemptApiKey,
+      runtimeAuthReplaced: runtime.runtimeAuthState !== null,
+      pluginHarnessOwnsTransport: runtime.pluginHarnessOwnsTransport,
+    }),
     authProfileId: runtime.lastProfileId,
     authProfileIdSource,
     initialReplayState: input.replayState,

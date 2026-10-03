@@ -35,7 +35,8 @@ import type { ToolEffectReceipt } from "../../tool-effect-receipt.js";
 import type { ToolErrorSummary } from "../../tool-error-summary.js";
 import type { NormalizedUsage } from "../../usage.js";
 import type { EmbeddedRunReplayMetadata, EmbeddedRunReplayState } from "../replay-state.js";
-import type { EmbeddedRunLivenessState } from "../types.js";
+import type { EmbeddedRunLivenessState, AgentBindingStatus } from "../types.js";
+import type { EmbeddedDispatchBindingSource } from "./binding-status.js";
 import type {
   DeferredEmbeddedRunLifecycleOwner,
   EmbeddedAttemptDeferredLifecycleOwner,
@@ -170,6 +171,8 @@ export type EmbeddedRunAttemptParams = EmbeddedRunAttemptBase & {
   contextWindowInfo?: EmbeddedRunContextWindowInfo;
   /** Resolved API key for this run when runtime auth did not replace it. */
   resolvedApiKey?: string;
+  /** Resolved dispatch fact; positive output additionally requires physical transport observation. */
+  bindingAuthSource?: EmbeddedDispatchBindingSource;
   /** Auth profile resolved for this attempt's provider/model call. */
   authProfileId?: string;
   /** Source for the resolved auth profile (user-locked or automatic). */
@@ -254,6 +257,7 @@ export type EmbeddedRunAttemptParams = EmbeddedRunAttemptBase & {
 };
 
 export type EmbeddedRunAttemptResult = {
+  bindingStatus?: AgentBindingStatus;
   terminal: AgentRunAttemptTerminal;
   /** True when the runtime made the authoritative final-assistant transcript decision. */
   assistantTranscriptOwned?: boolean;

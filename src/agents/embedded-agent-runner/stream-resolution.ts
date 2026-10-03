@@ -10,6 +10,10 @@ import { getStreamLlmRuntime } from "../../llm/model-runtime-binding.js";
 import "../ai-transport-runtime-host.js";
 import { createAnthropicVertexStreamFnForModel } from "../anthropic-vertex-stream.js";
 import type { StreamFn } from "../runtime/index.js";
+import {
+  createEmbeddedBindingObserver,
+  type EmbeddedDispatchBindingSource,
+} from "./run/binding-status.js";
 import type { EmbeddedRunAttemptParams } from "./run/types.js";
 
 const embeddedAgentBaseStreamFnCache = new WeakMap<object, StreamFn | undefined>();
@@ -115,10 +119,15 @@ export function resolveEmbeddedAgentStream(
     model: EmbeddedRunAttemptParams["model"];
     resolvedApiKey?: string;
     transportAuthAvailable?: boolean;
+    bindingAuthSource?: EmbeddedDispatchBindingSource;
     authProfileId?: string;
     authStorage?: { getApiKey(provider: string): Promise<string | undefined> };
   },
-): { streamFn: StreamFn; strategy: string } {
+): {
+  streamFn: StreamFn;
+  strategy: string;
+  getBindingStatus?: ReturnType<typeof createEmbeddedBindingObserver>["getBindingStatus"];
+} {
   const llmRuntime = resolveEmbeddedStreamRuntime(params);
   const wrapOptions = {
     runSignal: params.signal,
@@ -183,14 +192,30 @@ export function resolveEmbeddedAgentStream(
     // even without a resolved key; direct Anthropic keeps its existing replay path.
     (params.model.api === "anthropic-messages" && params.model.provider !== "anthropic")
   ) {
-    const boundaryAwareStreamFn = createBoundaryAwareStreamFnForModel(params.model);
+    let nativeTransport = false;
+    const boundaryAwareStreamFn = createBoundaryAwareStreamFnForModel(params.model, {
+      onNativeTransportSelected: () => {
+        nativeTransport = true;
+      },
+    });
     if (boundaryAwareStreamFn) {
+      const binding = createEmbeddedBindingObserver();
       return {
-        streamFn: wrapEmbeddedAgentStreamFn(boundaryAwareStreamFn, {
-          ...wrapOptions,
-          sessionId: params.sessionId,
-        }),
+        streamFn: wrapEmbeddedAgentStreamFn(
+          nativeTransport
+            ? binding.observe(boundaryAwareStreamFn, {
+                source: params.bindingAuthSource,
+                resolvedApiKey: params.resolvedApiKey,
+                model: params.model,
+              })
+            : boundaryAwareStreamFn,
+          {
+            ...wrapOptions,
+            sessionId: params.sessionId,
+          },
+        ),
         strategy: `boundary-aware:${params.model.api}`,
+        getBindingStatus: binding.getBindingStatus,
       };
     }
   }

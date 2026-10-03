@@ -190,7 +190,9 @@ describe("prepared embedded stream strategy", () => {
     const { streamFn, strategy } = resolveEmbeddedAgentStream(params);
 
     expect(strategy).toBe("boundary-aware:anthropic-messages");
-    expect(boundaryFactory.mock.calls.slice(initialCalls)).toEqual([[params.model]]);
+    expect(boundaryFactory.mock.calls.slice(initialCalls)).toEqual([
+      [params.model, { onNativeTransportSelected: expect.any(Function) }],
+    ]);
     await streamFn(params.model, { messages: [] });
     expect(boundaryStreamFn).toHaveBeenCalledTimes(1);
     expect(currentStreamFn).not.toHaveBeenCalled();

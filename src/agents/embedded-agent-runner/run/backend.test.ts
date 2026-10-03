@@ -26,6 +26,28 @@ describe("embedded attempt backend", () => {
     harnessMocks.settleRequester.mockReset();
   });
 
+  it("does not trust plugin binding status even when the prepared request is direct", async () => {
+    harnessMocks.runAttempt.mockResolvedValueOnce(
+      makeEmbeddedRunnerAttempt({
+        agentHarnessId: "plugin-fixture",
+        bindingStatus: { kind: "non-profile", authMode: "api-key", cliSession: "none" },
+      }),
+    );
+    const result = await runEmbeddedAttemptWithBackend({
+      runtimePlan: {
+        resolvedRef: { provider: "fixture", modelId: "fixture" },
+        auth: {
+          credentialSource: {
+            kind: "direct",
+            evidence: "provider-config",
+            authorization: "declared",
+          },
+        },
+      },
+    } as never);
+    expect(result.bindingStatus).toEqual({ kind: "unknown" });
+  });
+
   it.each([
     { yielded: true, settled: true, accepted: true, expected: true },
     { yielded: true, settled: false, accepted: true, expected: undefined },
