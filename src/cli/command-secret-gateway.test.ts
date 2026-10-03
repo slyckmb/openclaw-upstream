@@ -1186,6 +1186,42 @@ describe("resolveCommandSecretRefsViaGateway", () => {
     expect(result.hadUnresolvedTargets).toBe(false);
   });
 
+  it("treats an unconfigured selected model provider as a clean no-op", async () => {
+    const unrelatedRef = {
+      source: "env",
+      provider: "default",
+      id: "GOOGLE_API_KEY_UNRELATED_MISSING",
+    } as const;
+    const config = {
+      models: {
+        providers: {
+          google: {
+            baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+            apiKey: unrelatedRef,
+            models: [],
+          },
+        },
+      },
+    } as OpenClawConfig;
+    const scoped = getModelsCommandSecretTargetsForProvider({
+      config,
+      providerId: "missing-provider",
+    });
+
+    expect(scoped.allowedPaths).toEqual(new Set());
+
+    const result = await resolveCommandSecretRefsViaGateway({
+      config,
+      commandName: "models auth list",
+      ...scoped,
+    });
+
+    expect(callGateway).not.toHaveBeenCalled();
+    expect(result.resolvedConfig).toBe(config);
+    expect(result.hadUnresolvedTargets).toBe(false);
+    expect(result.diagnostics).toEqual([]);
+  });
+
   it("still fails when the selected model provider SecretRef is unresolved", async () => {
     const selectedRef = {
       source: "env",
