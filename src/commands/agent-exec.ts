@@ -402,6 +402,7 @@ export async function agentExecCommand(
           agentId: execAgentId,
           workspaceDir: cwd,
           cwd,
+          rootedExecution: { root: cwd },
           model: opts.model,
           codeModeOverride,
           thinking: opts.thinking,

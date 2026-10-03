@@ -191,6 +191,8 @@ export type AgentCommandOpts = {
   fastMode?: FastMode;
   /** Resolved per-run auto cutoff seconds for fast mode. */
   fastModeAutoOnSeconds?: number;
+  /** Host-owned rooted execution capability; never accepted from public ingress. */
+  rootedExecution?: import("../rooted-run-params.js").RootedExecutionRequest;
   /** Explicit workspace directory override (for subagents to inherit parent workspace). */
   workspaceDir?: SpawnedRunMetadata["workspaceDir"];
   /** Explicit task working directory for this run. Bootstrap still uses workspaceDir. */
@@ -261,6 +263,7 @@ type AgentCommandGatewayOnlyKey =
   | "executionIdentityAdmission"
   | "operationalRunInstance"
   | "operatorAuthority"
+  | "rootedExecution"
   | "assertSourceCurrent"
   | "skillLibraryAuthoring"
   | "cronCreatorAuthorityCapability"

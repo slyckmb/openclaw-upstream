@@ -50,6 +50,7 @@ describe("sanitizePublicAgentCommandIngressOpts", () => {
       taskSuggestionDeliveryMode: "gateway",
       assertSourceCurrent: () => {},
       beforeTerminalDelivery: async () => {},
+      rootedExecution: { root: "/forged-root" },
       operatorAuthority: {
         profileId: "forged",
         scopes: ["operator.admin"],
@@ -69,6 +70,7 @@ describe("sanitizePublicAgentCommandIngressOpts", () => {
       assertSourceCurrent: undefined,
       beforeTerminalDelivery: undefined,
       operatorAuthority: undefined,
+      rootedExecution: undefined,
     });
   });
 });
