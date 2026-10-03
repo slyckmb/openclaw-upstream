@@ -20,6 +20,7 @@ import {
 } from "../test-utils/talk-test-provider.js";
 import { resolveCommandSecretRefsViaGateway } from "./command-secret-gateway.js";
 import { testing as commandSecretGatewayTesting } from "./command-secret-gateway.test-support.js";
+import { getModelsCommandSecretTargetsForProvider } from "./command-secret-targets.js";
 
 const mocks = vi.hoisted(() => ({
   callGateway: vi.fn(),
@@ -1150,6 +1151,72 @@ describe("resolveCommandSecretRefsViaGateway", () => {
     } finally {
       restoreDeps();
     }
+  });
+
+  it("ignores unresolved SecretRefs owned by unselected model providers", async () => {
+    const unrelatedRef = {
+      source: "env",
+      provider: "default",
+      id: "GOOGLE_API_KEY_UNRELATED_MISSING",
+    } as const;
+    const config = {
+      models: {
+        providers: {
+          openai: {
+            baseUrl: "https://api.openai.com/v1",
+            apiKey: "sk-openai-test",
+            models: [],
+          },
+          google: {
+            baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+            apiKey: unrelatedRef,
+            models: [],
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const result = await resolveCommandSecretRefsViaGateway({
+      config,
+      commandName: "models auth list",
+      ...getModelsCommandSecretTargetsForProvider({ config, providerId: "openai" }),
+    });
+
+    expect(result.resolvedConfig.models?.providers?.google?.apiKey).toEqual(unrelatedRef);
+    expect(result.hadUnresolvedTargets).toBe(false);
+  });
+
+  it("still fails when the selected model provider SecretRef is unresolved", async () => {
+    const selectedRef = {
+      source: "env",
+      provider: "default",
+      id: "OPENAI_API_KEY_SELECTED_MISSING",
+    } as const;
+    const config = {
+      models: {
+        providers: {
+          openai: {
+            baseUrl: "https://api.openai.com/v1",
+            apiKey: selectedRef,
+            models: [],
+          },
+          google: {
+            baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+            apiKey: "google-test-key",
+            models: [],
+          },
+        },
+      },
+    } as OpenClawConfig;
+    callGateway.mockResolvedValueOnce({ assignments: [], diagnostics: [] });
+
+    await expect(
+      resolveCommandSecretRefsViaGateway({
+        config,
+        commandName: "models auth list",
+        ...getModelsCommandSecretTargetsForProvider({ config, providerId: "openai" }),
+      }),
+    ).rejects.toThrow(/models\.providers\.openai\.apiKey is unresolved/i);
   });
 
   it("returns a version-skew hint when gateway does not support secrets.resolve", async () => {

@@ -1,8 +1,9 @@
 /** Config loader for model commands with command-scoped secret resolution. */
+import { resolveProviderIdForAuth } from "../../agents/provider-auth-aliases.js";
 import { resolveCommandConfigWithSecrets } from "../../cli/command-config-resolution.js";
 import {
   getModelsCommandSecretTargetIds,
-  getModelsCommandSecretTargetIdsForProvider,
+  getModelsCommandSecretTargetsForProvider,
 } from "../../cli/command-secret-targets.js";
 import {
   getRuntimeConfig,
@@ -31,13 +32,20 @@ export async function loadModelsConfigWithSource(params: {
   );
   const pinnedSourceConfig = getRuntimeConfigSourceSnapshot();
   const sourceConfig = pinnedSourceConfig ?? runtimeConfig;
-  const targetIds = params.provider
-    ? getModelsCommandSecretTargetIdsForProvider(params.provider)
-    : getModelsCommandSecretTargetIds();
+  const provider = params.provider?.trim()
+    ? resolveProviderIdForAuth(params.provider, { config: runtimeConfig })
+    : undefined;
+  const scopedTargets = provider
+    ? getModelsCommandSecretTargetsForProvider({
+        config: runtimeConfig,
+        providerId: provider,
+      })
+    : { targetIds: getModelsCommandSecretTargetIds() };
   const { resolvedConfig, diagnostics } = await resolveCommandConfigWithSecrets({
     config: runtimeConfig,
     commandName: params.commandName,
-    targetIds,
+    targetIds: scopedTargets.targetIds,
+    ...("allowedPaths" in scopedTargets ? { allowedPaths: scopedTargets.allowedPaths } : {}),
     runtime: params.runtime,
   });
   // Keep the original source snapshot pinned so later config writes do not

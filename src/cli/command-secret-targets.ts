@@ -782,15 +782,30 @@ export function getModelsCommandSecretTargetIds(): Set<string> {
 }
 
 /** Model-provider credential targets scoped to a selected provider. */
-export function getModelsCommandSecretTargetIdsForProvider(providerId: string): Set<string> {
-  const normalized = providerId.trim().toLowerCase();
-  if (!normalized) {
-    return toTargetIdSet(STATIC_MODEL_TARGET_IDS);
+export function getModelsCommandSecretTargetsForProvider(params: {
+  config: OpenClawConfig;
+  providerId: string;
+}): {
+  targetIds: Set<string>;
+  allowedPaths: Set<string>;
+} {
+  const targetIds = getModelsCommandSecretTargetIds();
+  const providerId = normalizeProviderId(params.providerId);
+  const allowedPaths = new Set<string>();
+  if (!providerId) {
+    return { targetIds, allowedPaths };
   }
-  const scopedTargets = STATIC_MODEL_TARGET_IDS.map((pattern) =>
-    pattern.replace("models.providers.*", `models.providers.${normalized}`),
-  );
-  return toTargetIdSet(scopedTargets);
+  for (const target of discoverConfigSecretTargetsByIds(params.config, targetIds)) {
+    const [root, providersRoot, concreteProviderId] = target.pathSegments;
+    if (
+      root === "models" &&
+      providersRoot === "providers" &&
+      normalizeProviderId(concreteProviderId) === providerId
+    ) {
+      allowedPaths.add(target.path);
+    }
+  }
+  return { targetIds, allowedPaths };
 }
 
 /** Credential targets required by memory embedding flows. */

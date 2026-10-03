@@ -29,10 +29,6 @@ function hasSupportedTargetIdsWiring(source: string): boolean {
     /targetIds:\s*get[A-Za-z0-9_]+\(\)/m.test(source) ||
     /targetIds:\s*getAgentRuntimeCommandSecretTargetIds\(/m.test(source) ||
     /targetIds:\s*getCapabilityWeb(Fetch|Search)CommandSecretTargetIds\(/m.test(source) ||
-    /targetIds:\s*getModelsCommandSecretTargetIds(ForProvider)?\(/m.test(source) ||
-    /const targetIds\s*=\s*(params\.provider\s*\?\s*)?getModelsCommandSecretTargetIds(ForProvider)?\(/m.test(
-      source,
-    ) ||
     /targetIds:\s*scopedTargets\.targetIds/m.test(source) ||
     source.includes("collectStatusScanOverview({")
   );

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   setRuntimeConfigSnapshot: vi.fn(),
   resolveCommandSecretRefsViaGateway: vi.fn(),
   getModelsCommandSecretTargetIds: vi.fn(),
+  getModelsCommandSecretTargetsForProvider: vi.fn(),
 }));
 
 vi.mock("../../config/config.js", () => ({
@@ -21,6 +22,7 @@ vi.mock("../../cli/command-secret-gateway.js", () => ({
 
 vi.mock("../../cli/command-secret-targets.js", () => ({
   getModelsCommandSecretTargetIds: mocks.getModelsCommandSecretTargetIds,
+  getModelsCommandSecretTargetsForProvider: mocks.getModelsCommandSecretTargetsForProvider,
 }));
 
 import { loadModelsConfig, loadModelsConfigWithSource } from "./load-config.js";
@@ -38,6 +40,12 @@ describe("models load-config", () => {
     mocks.getRuntimeConfig.mockReturnValue(runtimeConfig);
     mocks.getRuntimeConfigSourceSnapshot.mockReturnValue(params.sourceConfig);
     mocks.getModelsCommandSecretTargetIds.mockReturnValue(targetIds);
+    mocks.getModelsCommandSecretTargetsForProvider.mockImplementation(
+      ({ providerId }: { providerId: string }) => ({
+        targetIds,
+        allowedPaths: new Set(["models.providers." + providerId + ".apiKey"]),
+      }),
+    );
     mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
       resolvedConfig,
       diagnostics: params.diagnostics,
@@ -80,6 +88,28 @@ describe("models load-config", () => {
     });
   });
 
+  it("scopes model secret resolution to the canonical selected provider", async () => {
+    const sourceConfig = { models: { providers: {} } };
+    mockResolvedConfigFlow({ sourceConfig, diagnostics: [] });
+
+    await loadModelsConfigWithSource({
+      commandName: "models auth list",
+      provider: " OpenAI ",
+    });
+
+    expect(mocks.getModelsCommandSecretTargetsForProvider).toHaveBeenCalledWith({
+      config: runtimeConfig,
+      providerId: "openai",
+    });
+    expect(mocks.getModelsCommandSecretTargetIds).not.toHaveBeenCalled();
+    expect(mocks.resolveCommandSecretRefsViaGateway).toHaveBeenCalledWith({
+      config: runtimeConfig,
+      commandName: "models auth list",
+      targetIds,
+      allowedPaths: new Set(["models.providers.openai.apiKey"]),
+    });
+  });
+
   it("loadModelsConfig returns resolved config while preserving runtime snapshot behavior", async () => {
     const sourceConfig = { models: { providers: {} } };
     mockResolvedConfigFlow({ sourceConfig, diagnostics: [] });
@@ -101,6 +131,12 @@ describe("models load-config", () => {
     mocks.getRuntimeConfig.mockReturnValue(runtimeConfig);
     mocks.getRuntimeConfigSourceSnapshot.mockReturnValue(null);
     mocks.getModelsCommandSecretTargetIds.mockReturnValue(targetIds);
+    mocks.getModelsCommandSecretTargetsForProvider.mockImplementation(
+      ({ providerId }: { providerId: string }) => ({
+        targetIds,
+        allowedPaths: new Set(["models.providers." + providerId + ".apiKey"]),
+      }),
+    );
     mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
       resolvedConfig,
       diagnostics: [],

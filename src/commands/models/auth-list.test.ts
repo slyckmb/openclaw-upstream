@@ -98,6 +98,11 @@ describe("modelsAuthListCommand", () => {
 
     await modelsAuthListCommand({ provider: "OpenAI", agent: "coder", json: true }, runtime);
 
+    expect(mocks.loadModelsConfig).toHaveBeenCalledWith({
+      commandName: "models auth list",
+      runtime,
+      provider: "OpenAI",
+    });
     expect(mocks.resolveModelsTargetAgent).toHaveBeenCalledWith(expect.anything(), "coder", {
       kind: "read",
     });
