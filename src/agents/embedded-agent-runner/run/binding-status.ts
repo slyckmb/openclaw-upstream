@@ -104,7 +104,11 @@ export function createEmbeddedBindingObserver() {
           model.id === input.model.id &&
           model.api === input.model.api &&
           !Object.keys(model.headers ?? {}).length &&
-          !Object.keys(options?.headers ?? {}).length &&
+          // Diagnostics adds W3C traceparent to physical calls; it cannot select
+          // credentials. Other caller headers still require separate auth proof.
+          !Object.keys(options?.headers ?? {}).some(
+            (name) => name.toLowerCase() !== "traceparent",
+          ) &&
           !(
             input.source === "direct-api-key" &&
             // SAFETY: authProfileId is an optional embedded extension to standard stream options.

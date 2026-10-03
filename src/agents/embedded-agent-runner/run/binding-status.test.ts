@@ -3,7 +3,7 @@ import { configureAiTransportHost, getAiTransportHost } from "@openclaw/ai";
 import { defaultLlmRuntime } from "@openclaw/ai/internal/runtime";
 import { nativeApiKeyObservation } from "@openclaw/ai/transports";
 import { describe, expect, it, vi } from "vitest";
-import type { Message, Model } from "../../../llm/types.js";
+import type { Message, Model, SimpleStreamOptions } from "../../../llm/types.js";
 import { runAgentLoop } from "../../../plugin-sdk/agent-core.js";
 import { createAssistantMessageEventStream } from "../../../plugin-sdk/llm.js";
 import { createEmbeddedModelState } from "../../embedded-agent-subscribe.model-state.js";
@@ -11,6 +11,7 @@ import { attachModelProviderRequestTransport } from "../../provider-request-conf
 import { makeAssistantMessageFixture } from "../../test-helpers/assistant-message-fixtures.js";
 import { makeEmbeddedRunnerAttempt } from "../../test-helpers/embedded-agent-runner-e2e-fixtures.js";
 import { resolveEmbeddedAgentStream } from "../stream-resolution.js";
+import { wrapStreamFnWithDiagnosticModelCallEvents } from "./attempt.model-diagnostic-events.js";
 import {
   resolveEmbeddedDispatchBindingSource,
   createEmbeddedBindingObserver,
@@ -24,7 +25,12 @@ vi.mock("./auth-profile-success.js", () => ({
 }));
 
 describe("offline producer binding envelopes", () => {
-  it.each([
+  it.each<{
+    name: string;
+    model?: Partial<Model>;
+    request?: unknown;
+    options?: SimpleStreamOptions & { authProfileId?: string };
+  }>([
     { name: "model headers", model: { headers: { Authorization: "synthetic-override" } } },
     { name: "different API", model: { api: "anthropic-messages" } },
     {
@@ -33,6 +39,14 @@ describe("offline producer binding envelopes", () => {
     },
     { name: "request headers", request: { headers: { Authorization: "synthetic-override" } } },
     { name: "caller headers", options: { headers: { Authorization: "synthetic-override" } } },
+    {
+      name: "caller auth alongside tracing",
+      options: { headers: { traceparent: "synthetic-trace", Authorization: "synthetic-override" } },
+    },
+    {
+      name: "unproven caller header",
+      options: { headers: { "x-account-id": "synthetic-account" } },
+    },
     { name: "different key", options: { apiKey: "synthetic-other-key" } },
     { name: "caller profile", options: { authProfileId: "synthetic-profile" } },
   ])("keeps $name evidence unknown", async (input) => {
@@ -160,7 +174,13 @@ describe("offline producer binding envelopes", () => {
             }
           },
           undefined,
-          transport.streamFn,
+          wrapStreamFnWithDiagnosticModelCallEvents(transport.streamFn, {
+            runId: "fixture-run",
+            provider: model.provider,
+            model: model.id,
+            trace: { traceId: "1234567890abcdef1234567890abcdef" },
+            nextCallId: () => "fixture-call",
+          }),
         );
         const assistant = state.getCurrentAttemptAssistant();
         expect(assistant?.stopReason, assistant?.errorMessage).toBe("stop");
@@ -198,6 +218,11 @@ describe("offline producer binding envelopes", () => {
       }
       expect(requests).toHaveLength(4);
       for (const [index, request] of requests.entries()) {
+        if (index !== 3) {
+          expect(request.headers.get("traceparent")).toMatch(
+            /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/u,
+          );
+        }
         expect(request.url).toBe("https://example.invalid/v1/chat/completions");
         expect(request.headers.get("authorization")).toBe(
           index === 3 ? "Bearer synthetic-header-override" : `Bearer ${key}`,
