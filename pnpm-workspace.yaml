@@ -135,7 +135,7 @@ overrides:
   "@aws-sdk/credential-provider-node": 3.972.80
   "@aws-sdk/xml-builder": 3.972.39
   "@hono/node-server": 2.1.1
-  axios: 1.19.0
+  axios: 1.20.0
   fast-uri: 4.1.4
   follow-redirects: 1.16.0
   defu: 6.1.7
@@ -143,13 +143,15 @@ overrides:
   request: "npm:@cypress/request@4.0.1"
   request-promise: "npm:@cypress/request-promise@5.0.0"
   basic-ftp: 6.2.0
-  brace-expansion: 5.0.9
+  brace-expansion: 5.0.12
   file-type: 22.0.2
   form-data: 4.0.6
   "werift-ice@0.2.2>ip": "npm:neoip@3.1.0"
   ip-address: 10.5.0
-  "mailauth@5.0.2>nodemailer": 9.1.1
-  "mailparser@3.9.16>nodemailer": 9.1.1
+  "jsdom@29.1.1>undici": 7.29.1
+  "mailauth@5.0.3>nodemailer": 10.0.10
+  "mailauth@5.0.3>joi": 18.2.9
+  "mailauth@5.0.3>undici": 8.10.2
   minimatch: 10.2.6
   path-to-regexp: 8.4.2
   qs: 6.15.3
