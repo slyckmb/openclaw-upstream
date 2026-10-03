@@ -6,9 +6,9 @@ const mocks = vi.hoisted(() => ({
   getRuntimeConfigSourceSnapshot: vi.fn(),
   setRuntimeConfigSnapshot: vi.fn(),
   resolveCommandSecretRefsViaGateway: vi.fn(),
-  resolveProviderIdForAuth: vi.fn(),
   getModelsCommandSecretTargetIds: vi.fn(),
   getModelsCommandSecretTargetsForProvider: vi.fn(),
+  resolveProviderIdForAuth: vi.fn((provider: string) => provider.trim().toLowerCase()),
 }));
 
 vi.mock("../../agents/provider-auth-aliases.js", () => ({
