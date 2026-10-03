@@ -35,10 +35,17 @@ export async function loadModelsConfigWithSource(params: {
   const provider = params.provider?.trim()
     ? resolveProviderIdForAuth(params.provider, { config: runtimeConfig })
     : undefined;
+  const equivalentProviderIds = provider
+    ? Object.keys(runtimeConfig.models?.providers ?? {}).filter(
+        (configuredProviderId) =>
+          resolveProviderIdForAuth(configuredProviderId, { config: runtimeConfig }) === provider,
+      )
+    : [];
   const scopedTargets = provider
     ? getModelsCommandSecretTargetsForProvider({
         config: runtimeConfig,
         providerId: provider,
+        equivalentProviderIds,
       })
     : { targetIds: getModelsCommandSecretTargetIds() };
   const { resolvedConfig, diagnostics } = await resolveCommandConfigWithSecrets({

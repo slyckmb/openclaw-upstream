@@ -785,14 +785,19 @@ export function getModelsCommandSecretTargetIds(): Set<string> {
 export function getModelsCommandSecretTargetsForProvider(params: {
   config: OpenClawConfig;
   providerId: string;
+  equivalentProviderIds?: Iterable<string>;
 }): {
   targetIds: Set<string>;
   allowedPaths: Set<string>;
 } {
   const targetIds = getModelsCommandSecretTargetIds();
-  const providerId = normalizeProviderId(params.providerId);
+  const providerIds = new Set(
+    [params.providerId, ...(params.equivalentProviderIds ?? [])]
+      .map((providerId) => normalizeProviderId(providerId))
+      .filter((providerId): providerId is string => Boolean(providerId)),
+  );
   const allowedPaths = new Set<string>();
-  if (!providerId) {
+  if (providerIds.size === 0) {
     return { targetIds, allowedPaths };
   }
   for (const target of discoverConfigSecretTargetsByIds(params.config, targetIds)) {
@@ -800,7 +805,7 @@ export function getModelsCommandSecretTargetsForProvider(params: {
     if (
       root === "models" &&
       providersRoot === "providers" &&
-      normalizeProviderId(concreteProviderId) === providerId
+      providerIds.has(normalizeProviderId(concreteProviderId) ?? "")
     ) {
       allowedPaths.add(target.path);
     }

@@ -6,8 +6,13 @@ const mocks = vi.hoisted(() => ({
   getRuntimeConfigSourceSnapshot: vi.fn(),
   setRuntimeConfigSnapshot: vi.fn(),
   resolveCommandSecretRefsViaGateway: vi.fn(),
+  resolveProviderIdForAuth: vi.fn(),
   getModelsCommandSecretTargetIds: vi.fn(),
   getModelsCommandSecretTargetsForProvider: vi.fn(),
+}));
+
+vi.mock("../../agents/provider-auth-aliases.js", () => ({
+  resolveProviderIdForAuth: mocks.resolveProviderIdForAuth,
 }));
 
 vi.mock("../../config/config.js", () => ({
@@ -41,9 +46,19 @@ describe("models load-config", () => {
     mocks.getRuntimeConfigSourceSnapshot.mockReturnValue(params.sourceConfig);
     mocks.getModelsCommandSecretTargetIds.mockReturnValue(targetIds);
     mocks.getModelsCommandSecretTargetsForProvider.mockImplementation(
-      ({ providerId }: { providerId: string }) => ({
+      ({
+        providerId,
+        equivalentProviderIds = [],
+      }: {
+        providerId: string;
+        equivalentProviderIds?: string[];
+      }) => ({
         targetIds,
-        allowedPaths: new Set(["models.providers." + providerId + ".apiKey"]),
+        allowedPaths: new Set(
+          (equivalentProviderIds.length > 0 ? equivalentProviderIds : [providerId]).map(
+            (id) => "models.providers." + id + ".apiKey",
+          ),
+        ),
       }),
     );
     mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
@@ -54,6 +69,9 @@ describe("models load-config", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.resolveProviderIdForAuth.mockImplementation((provider: string) =>
+      provider.trim().toLowerCase(),
+    );
   });
 
   it("returns source+resolved configs and sets runtime snapshot", async () => {
@@ -100,6 +118,7 @@ describe("models load-config", () => {
     expect(mocks.getModelsCommandSecretTargetsForProvider).toHaveBeenCalledWith({
       config: runtimeConfig,
       providerId: "openai",
+      equivalentProviderIds: ["openai"],
     });
     expect(mocks.getModelsCommandSecretTargetIds).not.toHaveBeenCalled();
     expect(mocks.resolveCommandSecretRefsViaGateway).toHaveBeenCalledWith({
@@ -107,6 +126,54 @@ describe("models load-config", () => {
       commandName: "models auth list",
       targetIds,
       allowedPaths: new Set(["models.providers.openai.apiKey"]),
+    });
+  });
+
+  it("includes configured provider aliases that resolve to the selected auth provider", async () => {
+    const aliasedRuntimeConfig = {
+      models: {
+        providers: {
+          "openai-compatible": { apiKey: "sk-runtime" }, // pragma: allowlist secret
+          google: { apiKey: "google-runtime" }, // pragma: allowlist secret
+        },
+      },
+    };
+    mocks.getRuntimeConfig.mockReturnValue(aliasedRuntimeConfig);
+    mocks.getRuntimeConfigSourceSnapshot.mockReturnValue(aliasedRuntimeConfig);
+    mocks.resolveProviderIdForAuth.mockImplementation((provider: string) => {
+      const normalized = provider.trim().toLowerCase();
+      return normalized === "legacy-openai" || normalized === "openai-compatible"
+        ? "openai"
+        : normalized;
+    });
+    mocks.getModelsCommandSecretTargetsForProvider.mockImplementation(
+      ({ equivalentProviderIds = [] }: { equivalentProviderIds?: string[] }) => ({
+        targetIds,
+        allowedPaths: new Set(
+          equivalentProviderIds.map((id) => "models.providers." + id + ".apiKey"),
+        ),
+      }),
+    );
+    mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
+      resolvedConfig,
+      diagnostics: [],
+    });
+
+    await loadModelsConfigWithSource({
+      commandName: "models auth list",
+      provider: "legacy-openai",
+    });
+
+    expect(mocks.getModelsCommandSecretTargetsForProvider).toHaveBeenCalledWith({
+      config: aliasedRuntimeConfig,
+      providerId: "openai",
+      equivalentProviderIds: ["openai-compatible"],
+    });
+    expect(mocks.resolveCommandSecretRefsViaGateway).toHaveBeenCalledWith({
+      config: aliasedRuntimeConfig,
+      commandName: "models auth list",
+      targetIds,
+      allowedPaths: new Set(["models.providers.openai-compatible.apiKey"]),
     });
   });
 
@@ -132,9 +199,19 @@ describe("models load-config", () => {
     mocks.getRuntimeConfigSourceSnapshot.mockReturnValue(null);
     mocks.getModelsCommandSecretTargetIds.mockReturnValue(targetIds);
     mocks.getModelsCommandSecretTargetsForProvider.mockImplementation(
-      ({ providerId }: { providerId: string }) => ({
+      ({
+        providerId,
+        equivalentProviderIds = [],
+      }: {
+        providerId: string;
+        equivalentProviderIds?: string[];
+      }) => ({
         targetIds,
-        allowedPaths: new Set(["models.providers." + providerId + ".apiKey"]),
+        allowedPaths: new Set(
+          (equivalentProviderIds.length > 0 ? equivalentProviderIds : [providerId]).map(
+            (id) => "models.providers." + id + ".apiKey",
+          ),
+        ),
       }),
     );
     mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
