@@ -16,6 +16,7 @@ import type { RuntimeEnv } from "../../runtime.js";
 /** Source and resolved config pair returned by model command config loading. */
 type LoadedModelsConfig = {
   sourceConfig: OpenClawConfig;
+  /** Only this command's in-scope SecretRefs are materialized; out-of-scope refs remain intact. */
   resolvedConfig: OpenClawConfig;
   diagnostics: string[];
 };
@@ -32,8 +33,9 @@ export async function loadModelsConfigWithSource(params: {
   );
   const pinnedSourceConfig = getRuntimeConfigSourceSnapshot();
   const sourceConfig = pinnedSourceConfig ?? runtimeConfig;
-  const provider = params.provider?.trim()
-    ? resolveProviderIdForAuth(params.provider, { config: runtimeConfig })
+  const rawProvider = params.provider?.trim();
+  const provider = rawProvider
+    ? resolveProviderIdForAuth(rawProvider, { config: runtimeConfig })
     : undefined;
   const equivalentProviderIds = provider
     ? Object.keys(runtimeConfig.models?.providers ?? {}).filter(
@@ -41,10 +43,10 @@ export async function loadModelsConfigWithSource(params: {
           resolveProviderIdForAuth(configuredProviderId, { config: runtimeConfig }) === provider,
       )
     : [];
-  const scopedTargets = provider
+  const scopedTargets = rawProvider
     ? getModelsCommandSecretTargetsForProvider({
         config: runtimeConfig,
-        providerId: provider,
+        providerId: provider ?? "",
         equivalentProviderIds,
       })
     : { targetIds: getModelsCommandSecretTargetIds() };

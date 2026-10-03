@@ -802,11 +802,10 @@ export function getModelsCommandSecretTargetsForProvider(params: {
   }
   for (const target of discoverConfigSecretTargetsByIds(params.config, targetIds)) {
     const [root, providersRoot, concreteProviderId] = target.pathSegments;
-    if (
-      root === "models" &&
-      providersRoot === "providers" &&
-      providerIds.has(normalizeProviderId(concreteProviderId) ?? "")
-    ) {
+    if (root !== "models" || providersRoot !== "providers" || !concreteProviderId) {
+      continue;
+    }
+    if (providerIds.has(normalizeProviderId(concreteProviderId) ?? "")) {
       allowedPaths.add(target.path);
     }
   }

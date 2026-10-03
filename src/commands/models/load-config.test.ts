@@ -45,22 +45,10 @@ describe("models load-config", () => {
     mocks.getRuntimeConfig.mockReturnValue(runtimeConfig);
     mocks.getRuntimeConfigSourceSnapshot.mockReturnValue(params.sourceConfig);
     mocks.getModelsCommandSecretTargetIds.mockReturnValue(targetIds);
-    mocks.getModelsCommandSecretTargetsForProvider.mockImplementation(
-      ({
-        providerId,
-        equivalentProviderIds = [],
-      }: {
-        providerId: string;
-        equivalentProviderIds?: string[];
-      }) => ({
-        targetIds,
-        allowedPaths: new Set(
-          (equivalentProviderIds.length > 0 ? equivalentProviderIds : [providerId]).map(
-            (id) => "models.providers." + id + ".apiKey",
-          ),
-        ),
-      }),
-    );
+    mocks.getModelsCommandSecretTargetsForProvider.mockReturnValue({
+      targetIds,
+      allowedPaths: new Set(["models.providers.openai.apiKey"]),
+    });
     mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
       resolvedConfig,
       diagnostics: params.diagnostics,
@@ -129,6 +117,34 @@ describe("models load-config", () => {
     });
   });
 
+  it("fails closed to an empty provider scope if canonicalization unexpectedly returns empty", async () => {
+    const sourceConfig = { models: { providers: {} } };
+    mockResolvedConfigFlow({ sourceConfig, diagnostics: [] });
+    mocks.resolveProviderIdForAuth.mockReturnValueOnce("");
+    mocks.getModelsCommandSecretTargetsForProvider.mockReturnValueOnce({
+      targetIds,
+      allowedPaths: new Set(),
+    });
+
+    await loadModelsConfigWithSource({
+      commandName: "models auth list",
+      provider: "unexpected-provider",
+    });
+
+    expect(mocks.getModelsCommandSecretTargetsForProvider).toHaveBeenCalledWith({
+      config: runtimeConfig,
+      providerId: "",
+      equivalentProviderIds: [],
+    });
+    expect(mocks.getModelsCommandSecretTargetIds).not.toHaveBeenCalled();
+    expect(mocks.resolveCommandSecretRefsViaGateway).toHaveBeenCalledWith({
+      config: runtimeConfig,
+      commandName: "models auth list",
+      targetIds,
+      allowedPaths: new Set(),
+    });
+  });
+
   it("includes configured provider aliases that resolve to the selected auth provider", async () => {
     const aliasedRuntimeConfig = {
       models: {
@@ -146,14 +162,10 @@ describe("models load-config", () => {
         ? "openai"
         : normalized;
     });
-    mocks.getModelsCommandSecretTargetsForProvider.mockImplementation(
-      ({ equivalentProviderIds = [] }: { equivalentProviderIds?: string[] }) => ({
-        targetIds,
-        allowedPaths: new Set(
-          equivalentProviderIds.map((id) => "models.providers." + id + ".apiKey"),
-        ),
-      }),
-    );
+    mocks.getModelsCommandSecretTargetsForProvider.mockReturnValue({
+      targetIds,
+      allowedPaths: new Set(["models.providers.openai-compatible.apiKey"]),
+    });
     mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
       resolvedConfig,
       diagnostics: [],
@@ -198,22 +210,6 @@ describe("models load-config", () => {
     mocks.getRuntimeConfig.mockReturnValue(runtimeConfig);
     mocks.getRuntimeConfigSourceSnapshot.mockReturnValue(null);
     mocks.getModelsCommandSecretTargetIds.mockReturnValue(targetIds);
-    mocks.getModelsCommandSecretTargetsForProvider.mockImplementation(
-      ({
-        providerId,
-        equivalentProviderIds = [],
-      }: {
-        providerId: string;
-        equivalentProviderIds?: string[];
-      }) => ({
-        targetIds,
-        allowedPaths: new Set(
-          (equivalentProviderIds.length > 0 ? equivalentProviderIds : [providerId]).map(
-            (id) => "models.providers." + id + ".apiKey",
-          ),
-        ),
-      }),
-    );
     mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
       resolvedConfig,
       diagnostics: [],
