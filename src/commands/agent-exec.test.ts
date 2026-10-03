@@ -207,6 +207,26 @@ describe("agent exec command composition", () => {
     });
   });
 
+  it("roots trusted agent exec runs at the requested cwd", async () => {
+    const runtime = createTestRuntime();
+    const root = tempDirs.make("openclaw-agent-exec-rooted-");
+    const runAgent = vi.fn(async () => successResult());
+
+    const result = await agentExecCommand("inspect", { cwd: root, json: true }, runtime, {
+      runAgent,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceDir: root,
+        cwd: root,
+        rootedExecution: { root },
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("maps structured thrown timeouts to exit code 2", async () => {
     const runtime = createTestRuntime();
     const timeout = Object.assign(new Error("deadline elapsed"), { name: "TimeoutError" });

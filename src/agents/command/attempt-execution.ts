@@ -670,6 +670,7 @@ export function runAgentAttempt(params: {
             modelProvider: params.providerOverride,
             requesterModel: { provider: params.providerOverride, model: params.modelOverride },
             provider: cliExecutionProvider,
+            rootedExecution: params.opts.rootedExecution,
             abortSignal: params.deferredLifecycle?.signal ?? params.opts.abortSignal,
             onExecutionStarted: params.opts.onExecutionStarted,
             cronCreatorCallerOrigin: params.opts.cronCreatorAuthorityCapability?.callerOrigin,

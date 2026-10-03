@@ -643,6 +643,31 @@ describe("CLI attempt execution", () => {
     });
   }
 
+  it("forwards host-owned rooted execution to CLI backends", async () => {
+    const sessionKey = "agent:main:rooted-cli";
+    const sessionEntry = makeSessionEntry("session-rooted-cli");
+    const sessionStore = await seedSessionStore(sessionKey, sessionEntry);
+    runCliAgentMock.mockResolvedValueOnce(makeCliResult("rooted"));
+
+    await runAgentAttempt({
+      providerOverride: "claude-cli",
+      modelOverride: "opus",
+      sessionKey,
+      sessionEntry,
+      sessionStore,
+      storePath,
+      agentDir,
+      workspaceDir: tmpDir,
+      body: "rooted cli",
+      runId: "rooted-cli-run",
+      opts: { rootedExecution: { root: tmpDir } },
+    });
+
+    expect(firstRunCliAgentArg()).toMatchObject({
+      rootedExecution: { root: tmpDir },
+    });
+  });
+
   it.each([false, "auto"] as const)(
     "forwards resolved fast mode %s and its logical turn clock to CLI execution",
     async (fastMode) => {
