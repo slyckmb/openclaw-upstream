@@ -1966,6 +1966,26 @@ NODE
     });
   });
 
+  it("keeps ARM pull request validation off unavailable leased runner capacity", () => {
+    const workflow = readWorkflow(".github/workflows/ci-check-arm-testbox.yml");
+    const job = workflow.jobs["check-arm"];
+
+    expect(job["runs-on"]).toBe(
+      "${{ github.event_name == 'pull_request' && 'ubuntu-24.04-arm' || 'blacksmith-16vcpu-ubuntu-2404-arm' }}",
+    );
+    expect(job.steps.find((step: WorkflowStep) => step.name === "Verify ARM runner")).toBeDefined();
+
+    const beginStep = job.steps.find((step: WorkflowStep) => step.name === "Begin Testbox");
+    const runStep = job.steps.find((step: WorkflowStep) => step.name === "Run Testbox");
+    expect(beginStep).toMatchObject({
+      if: "github.event_name == 'workflow_dispatch'",
+      with: { testbox_id: "${{ inputs.testbox_id }}" },
+    });
+    expect(runStep).toMatchObject({
+      if: "github.event_name == 'workflow_dispatch' && always()",
+    });
+  });
+
   it("keeps every path-filtered hosted gate runnable on landing-relevant events", () => {
     const workflows = [
       [".github/workflows/ci-check-testbox.yml", "check"],
