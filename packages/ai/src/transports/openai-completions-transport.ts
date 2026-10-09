@@ -55,6 +55,10 @@ import {
 
 export { buildOpenAICompletionsParams } from "./openai-completions-params.js";
 
+/** Private per-call observation; never serialized or included in provider payloads. */
+export const nativeApiKeyObservation = Symbol("native-api-key-observation");
+type NativeObservedOptions = { [nativeApiKeyObservation]?: () => void };
+
 function assertOpenAICompletionsPayloadHasConversationTurn(
   params: Record<string, unknown>,
   model: Model,
@@ -191,6 +195,11 @@ export function createOpenAICompletionsTransportStreamFn(): StreamFn {
       let firstEventAbort: ReturnType<typeof createFirstStreamEventAbortController> | undefined;
       try {
         const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
+        // SAFETY: the optional symbol is an internal callback carried alongside standard stream options.
+        const observeApiKey = (options as NativeObservedOptions | undefined)?.[
+          nativeApiKeyObservation
+        ];
+        const explicitKey = Boolean(options?.apiKey) && options?.apiKey === apiKey;
         const turnState = resolveProviderTransportTurnState(model, {
           sessionId: options?.sessionId,
           turnId: randomUUID(),
@@ -208,6 +217,22 @@ export function createOpenAICompletionsTransportStreamFn(): StreamFn {
         const doneDetector = createSseDoneDetector();
         const baseFetch = buildGuardedModelFetch(model);
         const doneDetectingFetch: typeof globalThis.fetch = async (url, init) => {
+          // Observe the SDK's actual request after client/header processing. A
+          // matching resolved key alone is insufficient if another auth header wins.
+          // Only callers that asked for the observation pay for header parsing.
+          if (explicitKey && observeApiKey) {
+            const headers = new Headers(
+              init?.headers ?? (url instanceof Request ? url.headers : undefined),
+            );
+            if (
+              headers.get("authorization") === `Bearer ${apiKey}` &&
+              !["api-key", "x-api-key", "x-goog-api-key", "cookie"].some((name) =>
+                headers.has(name),
+              )
+            ) {
+              observeApiKey();
+            }
+          }
           const response = await baseFetch(url as never, init);
           if (!response.body || !response.ok) {
             return response;

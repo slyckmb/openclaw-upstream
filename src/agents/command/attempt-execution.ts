@@ -8,7 +8,6 @@ import {
 } from "../../auto-reply/reply/source-turn-id.js";
 import { messageToolOwnsVisibleReply } from "../../auto-reply/source-reply-delivery-mode.js";
 import type { ThinkLevel, VerboseLevel } from "../../auto-reply/thinking.js";
-import { resolveCollapsedSessionAuthPinSource } from "../../config/sessions/auth-profile-override-provenance.js";
 import {
   loadSessionEntry,
   type SessionTranscriptRuntimeTarget,
@@ -79,7 +78,10 @@ import {
 } from "../subagents/announce/subagent-announce-handoff.js";
 import { isRuntimeToolAllowed, isToolAllowedByPolicies } from "../tool-policy-match.js";
 import { DEFAULT_MAX_LIVE_TOOL_RESULT_CHARS } from "../tool-result-limits.js";
-import { resolveHarnessAuthProfileSelection } from "./attempt-auth-selection.js";
+import {
+  resolveAttemptAuthProfileSelection,
+  resolveHarnessAuthProfileSelection,
+} from "./attempt-auth-selection.js";
 import { emitAgentAttemptRuntimeStart } from "./attempt-callbacks.js";
 import {
   buildClaudeCliFallbackContextPrelude,
@@ -107,6 +109,8 @@ export function runAgentAttempt(params: {
   modelHasVision?: boolean;
   modelThinkingCapability?: RunEmbeddedAgentInternalParams["modelThinkingCapability"];
   configuredAuthProfileId?: string;
+  /** Exact fallback-candidate binding; stronger than ambient/session auth selection. */
+  candidateAuthProfileId?: string;
   originalProvider: string;
   cfg: OpenClawConfig;
   sessionEntry: SessionEntry | undefined;
@@ -172,18 +176,11 @@ export function runAgentAttempt(params: {
     authProfileIdSource?: "auto" | "user";
   }) => void;
 }) {
-  const sessionAuthProfileId = params.sessionEntry?.authProfileOverride?.trim();
-  const sessionAuthProfileSource = resolveCollapsedSessionAuthPinSource(params.sessionEntry);
-  // An explicit session choice owns the conversation. Otherwise the profile
-  // bound to the configured model replaces a stale automatic session choice.
-  const selectedAuthProfile =
-    sessionAuthProfileId && sessionAuthProfileSource !== "auto"
-      ? { id: sessionAuthProfileId, source: sessionAuthProfileSource }
-      : params.configuredAuthProfileId?.trim()
-        ? { id: params.configuredAuthProfileId.trim(), source: "user" as const }
-        : sessionAuthProfileId
-          ? { id: sessionAuthProfileId, source: sessionAuthProfileSource }
-          : undefined;
+  const selectedAuthProfile = resolveAttemptAuthProfileSelection({
+    candidateAuthProfileId: params.candidateAuthProfileId,
+    configuredAuthProfileId: params.configuredAuthProfileId,
+    sessionEntry: params.sessionEntry,
+  });
   const isRawModelRun = params.opts.modelRun === true || params.opts.promptMode === "none";
   const isSubagentLane = params.opts.lane === AGENT_LANE_SUBAGENT;
   // A completion handoff relays frozen child output, so only a verified private

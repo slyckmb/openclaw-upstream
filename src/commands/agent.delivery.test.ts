@@ -101,6 +101,7 @@ describe("deliverAgentCommandResult", () => {
     runtime?: RuntimeEnv;
     resultText?: string;
     payloads?: ReplyPayload[];
+    meta?: Record<string, unknown>;
   }) {
     const cfg = {} as OpenClawConfig;
     const deps = {} as CliDeps;
@@ -108,9 +109,9 @@ describe("deliverAgentCommandResult", () => {
     const result = params.payloads
       ? {
           payloads: params.payloads,
-          meta: { durationMs: 1 },
+          meta: { durationMs: 1, ...params.meta },
         }
-      : createResult(params.resultText);
+      : { ...createResult(params.resultText), meta: { durationMs: 1, ...params.meta } };
 
     await deliverAgentCommandResult({
       cfg,
@@ -341,6 +342,26 @@ describe("deliverAgentCommandResult", () => {
       ],
     ]);
   });
+
+  it.each([
+    { kind: "non-profile", authMode: "api-key", cliSession: "none" },
+    { kind: "profile-bound" },
+    { kind: "unknown" },
+  ])(
+    "emits producer binding status verbatim in the JSON envelope: $kind",
+    async (bindingStatus) => {
+      const runtime = createRuntime();
+      await runDelivery({
+        runtime,
+        resultText: "ok",
+        meta: { agentMeta: { provider: "fixture", model: "fixture-model", bindingStatus } },
+        opts: { message: "hello", deliver: false, json: true },
+      });
+
+      const emitted = String((runtime.log as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]);
+      expect(JSON.parse(emitted).meta.agentMeta.bindingStatus).toEqual(bindingStatus);
+    },
+  );
 
   it("preserves audioAsVoice in JSON output envelopes", async () => {
     const runtime = createRuntime();

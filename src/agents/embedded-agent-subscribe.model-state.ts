@@ -7,6 +7,7 @@ import {
 } from "../infra/agent-events.js";
 import { getAgentRunContext } from "../infra/agent-run-registry.js";
 import type { AssistantMessage, Usage } from "../llm/types.js";
+import { copyEmbeddedBindingObservation } from "./embedded-agent-runner/run/binding-status.js";
 import {
   createUsageAccumulator,
   mergeUsageIntoAccumulator,
@@ -211,7 +212,9 @@ export function createEmbeddedModelState(
           });
           pending = undefined;
           // Context-engine projection can later mutate transcript objects; retain this run's result.
-          completed = applyAssistantDeliveryDirectives(structuredClone(message));
+          completed = applyAssistantDeliveryDirectives(
+            copyEmbeddedBindingObservation(message, structuredClone(message)),
+          );
           lastUsage ??= message.stopReason === "error" ? retryUsage : undefined;
           retryUsage = undefined;
           params.onContextAccountingEvent?.({
@@ -226,7 +229,8 @@ export function createEmbeddedModelState(
     recordAuxiliaryUsage: (usage: Usage) => recordModelUsage(normalizeUsage(usage)),
     getUsageTotals: () => toNormalizedUsage(totals),
     getLastAssistantUsage: () => normalizeUsage(lastUsage),
-    getCurrentAttemptAssistant: () => (completed ? structuredClone(completed) : undefined),
+    getCurrentAttemptAssistant: () =>
+      completed ? copyEmbeddedBindingObservation(completed, structuredClone(completed)) : undefined,
     hasSuccessfulModelResponse: () => successfulModelResponse,
   };
 }
