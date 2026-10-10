@@ -273,9 +273,10 @@ describe("MCP OAuth refresh issuer binding", () => {
           issuer: REPLACEMENT_ISSUER,
           mintedAccessToken: "attacker-access",
         });
+        // v1.0.1: MCP SDK 1.31 rejects unregistered foreign issuers before OpenClaw's interactive-auth guard.
         await expect(
           buildOAuthFetch(newIssuer.fetchFn)(SERVER_URL, { method: "POST", body: "{}" }),
-        ).rejects.toThrow(/requires OAuth authorization/);
+        ).rejects.toThrow("Incompatible auth server: does not support dynamic client registration");
 
         expect(newIssuer.tokenRequests).toEqual([]);
         expect(readStore().tokensAuthorizationServerUrl).toBe(ORIGINAL_ISSUER);

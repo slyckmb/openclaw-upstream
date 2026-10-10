@@ -1966,6 +1966,26 @@ NODE
     });
   });
 
+  it("keeps ARM pull request validation off unavailable leased runner capacity", () => {
+    const workflow = readWorkflow(".github/workflows/ci-check-arm-testbox.yml");
+    const job = workflow.jobs["check-arm"];
+
+    expect(job["runs-on"]).toBe(
+      "${{ github.event_name == 'pull_request' && 'ubuntu-24.04-arm' || 'blacksmith-16vcpu-ubuntu-2404-arm' }}",
+    );
+    expect(job.steps.find((step: WorkflowStep) => step.name === "Verify ARM runner")).toBeDefined();
+
+    const beginStep = job.steps.find((step: WorkflowStep) => step.name === "Begin Testbox");
+    const runStep = job.steps.find((step: WorkflowStep) => step.name === "Run Testbox");
+    expect(beginStep).toMatchObject({
+      if: "github.event_name == 'workflow_dispatch'",
+      with: { testbox_id: "${{ inputs.testbox_id }}" },
+    });
+    expect(runStep).toMatchObject({
+      if: "github.event_name == 'workflow_dispatch' && always()",
+    });
+  });
+
   it("keeps every path-filtered hosted gate runnable on landing-relevant events", () => {
     const workflows = [
       [".github/workflows/ci-check-testbox.yml", "check"],
@@ -6513,14 +6533,86 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       "max-parallel": 5,
       matrix: { stripe: [1, 2, 3, 4, 5] },
     });
+    const hostedLintCache = workflow.jobs["check-shard"].steps.find(
+      (step: WorkflowStep) =>
+        step.name === "Cache extension package boundary artifacts for hosted lint",
+    );
+    const hostedCoreFingerprint = hostedCoreLint.steps.find(
+      (step: WorkflowStep) => step.name === "Compute extension boundary input fingerprint",
+    );
+    const hostedCoreCache = hostedCoreLint.steps.find(
+      (step: WorkflowStep) =>
+        step.name === "Cache extension package boundary artifacts for hosted core lint",
+    );
+    expect(hostedCoreFingerprint).toBeDefined();
+    expect(hostedCoreCache?.uses).toBe(CACHE_V5);
+    expect(hostedCoreCache?.with).toEqual(hostedLintCache.with);
+    expect(hostedCoreLint.steps.indexOf(hostedCoreFingerprint)).toBeLessThan(
+      hostedCoreLint.steps.indexOf(hostedCoreCache),
+    );
+    expect(
+      hostedCoreLint.steps.some((step: WorkflowStep) =>
+        step.uses?.startsWith("actions/cache/save@"),
+      ),
+    ).toBe(false);
     expect(
       hostedCoreLint.steps.find((step: WorkflowStep) => step.name === "Run hosted core lint stripe")
         .env.GOMAXPROCS,
     ).toBe("2");
-    expect(
-      hostedCoreLint.steps.find((step: WorkflowStep) => step.name === "Run hosted core lint stripe")
-        .run,
-    ).toContain("--only=core --split-core --core-stripe=${{ matrix.stripe }}/5 --threads=1");
+    const hostedCoreRun = hostedCoreLint.steps.find(
+      (step: WorkflowStep) => step.name === "Run hosted core lint stripe",
+    ).run;
+    expect(hostedCoreRun).toContain(
+      "--only=core --split-core --core-stripe=${{ matrix.stripe }}/5 --threads=1",
+    );
+
+    const runLintOwner = (lane: "check" | "core") => {
+      const root = tempDirs.make("openclaw-hosted-lint-owner-");
+      const binDir = path.join(root, "bin");
+      const callsPath = path.join(root, "calls.txt");
+      mkdirSync(path.join(root, "scripts"), { recursive: true });
+      mkdirSync(binDir);
+      writeFileSync(path.join(root, "scripts/run-oxlint-shards.mts"), "// --extension-stripe\n");
+      for (const command of ["node", "pnpm"]) {
+        writeExecutable(path.join(binDir, command), [
+          "#!/usr/bin/env bash",
+          "set -euo pipefail",
+          `printf '${command} %s\n' "$*" >> "$LINT_CALLS"`,
+        ]);
+      }
+      writeExecutable(path.join(binDir, "nproc"), ["#!/usr/bin/env bash", "printf '32\n'"]);
+      const command =
+        lane === "check" ? checkShardRun : hostedCoreRun.replaceAll("${{ matrix.stripe }}", "1");
+      const result = spawnSync("bash", ["-c", command], {
+        cwd: root,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          FORMAT_CHECK: "false",
+          HISTORICAL_TARGET: "false",
+          LINT_CALLS: callsPath,
+          OPENCLAW_LOCAL_CHECK: "0",
+          PATH: `${binDir}:${process.env.PATH ?? ""}`,
+          RUN_CONTROL_UI_I18N: "false",
+          RUNNER_BACKEND: "github",
+          RUN_UI_TESTS: "false",
+          TASK: "lint",
+        },
+      });
+      expect(result.status, `${result.stdout}${result.stderr}`).toBe(0);
+      return existsSync(callsPath)
+        ? readFileSync(callsPath, "utf8").trim().split("\n").filter(Boolean)
+        : [];
+    };
+
+    expect(runLintOwner("check")).toEqual([
+      "node --import tsx scripts/run-oxlint-shards.mts --only=extensions --extension-stripe=6/6 --threads=1",
+      "node --import tsx scripts/run-oxlint-shards.mts --only=scripts --threads=1",
+    ]);
+    expect(runLintOwner("core")).toEqual([
+      "node --import tsx scripts/run-oxlint-shards.mts --only=core --split-core --core-stripe=1/5 --threads=1",
+      "node --import tsx scripts/run-oxlint-shards.mts --only=extensions --extension-stripe=1/6 --threads=1",
+    ]);
   });
 
   it("runs all baseline ratchets against the exact tested tree", () => {

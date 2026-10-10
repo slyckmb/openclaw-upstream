@@ -6,8 +6,8 @@
   "type": "module",
   "dependencies": {
     "imapflow": "1.7.2",
-    "mailauth": "5.0.2",
-    "mailparser": "3.9.16"
+    "mailauth": "5.0.3",
+    "mailparser": "3.9.28"
   },
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*",

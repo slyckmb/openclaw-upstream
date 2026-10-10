@@ -9,7 +9,7 @@ import {
   createOxlintShards,
   filterOxlintShards,
   parseShardRunnerArgs,
-  createWindowsExtensionShards,
+  createExtensionOxlintShards,
   resolveShardKillGraceMs,
   resolveShardHeartbeatMs,
   resolveShardTimeoutMs,
@@ -17,6 +17,7 @@ import {
   resolveWindowsExtensionChunkSize,
   runShard,
   selectCoreOxlintStripe,
+  selectExtensionOxlintStripe,
   shouldPrepareExtensionPackageBoundaryArtifactsForShards,
   shouldRunOxlintShardsSerial,
 } from "../../scripts/run-oxlint-shards.mts";
@@ -315,6 +316,17 @@ describe("run-oxlint", () => {
     expect(resolveSplitCoreConcurrency({ CI: "true" }, CONSTRAINED_HOST)).toBe(1);
   });
 
+  it("keeps explicitly split extension stripes serial on roomy hosts", () => {
+    expect(
+      resolveOxlintShardConcurrency({
+        env: { CI: "true", OPENCLAW_OXLINT_SHARD_CONCURRENCY: "2" },
+        platform: "linux",
+        hostResources: ROOMY_HOST,
+        splitExtensions: true,
+      }),
+    ).toBe(1);
+  });
+
   it("does not let local throttled mode serialize remote changed gates", () => {
     expect(
       resolveSplitCoreConcurrency({
@@ -518,8 +530,14 @@ describe("run-oxlint", () => {
 
     expect([...parsed.only]).toEqual(["core"]);
     expect(parsed.coreStripe).toEqual({ index: 2, total: 3 });
+    expect(parsed.extensionStripe).toBeUndefined();
     expect(parsed.splitCore).toBe(true);
     expect(parsed.oxlintArgs).toEqual(["--max-warnings", "0"]);
+
+    const extension = parseShardRunnerArgs(["--only", "extensions", "--extension-stripe", "4/6"]);
+    expect([...extension.only]).toEqual(["extensions"]);
+    expect(extension.extensionStripe).toEqual({ index: 4, total: 6 });
+    expect(extension.oxlintArgs).toEqual([]);
   });
 
   it("aggregates split core targets into deterministic disjoint Programs", () => {
@@ -550,6 +568,50 @@ describe("run-oxlint", () => {
     ).toThrow("--core-stripe requires a non-empty core-only shard selection");
   });
 
+  it("partitions constrained extension programs exactly once without aggregating them", () => {
+    const entries = [
+      { name: "root.test.ts", isDirectory: () => false, isFile: () => true },
+      ...Array.from({ length: 55 }, (_, index) => ({
+        name: `plugin-${String(index).padStart(2, "0")}`,
+        isDirectory: () => true,
+        isFile: () => false,
+      })),
+    ] as never;
+    const shards = createOxlintShards({
+      cwd: "/repo",
+      env: { CI: "true" },
+      hostResources: { logicalCpuCount: 4, totalMemoryBytes: 16 * 1024 ** 3 },
+      platform: "linux",
+      readDir: () => entries,
+    }).filter((shard) => shard.name.startsWith("extensions:"));
+    const explicitStripeShards = createOxlintShards({
+      cwd: "/repo",
+      env: { CI: "true" },
+      hostResources: ROOMY_HOST,
+      platform: "linux",
+      readDir: () => entries,
+      splitExtensions: true,
+    }).filter((shard) => shard.name.startsWith("extensions:"));
+    expect(explicitStripeShards).toEqual(shards);
+    const stripes = Array.from({ length: 6 }, (_, index) =>
+      selectExtensionOxlintStripe(shards, { index: index + 1, total: 6 }),
+    );
+
+    const selected = stripes.flat();
+    expect(selected.toSorted((left, right) => left.name.localeCompare(right.name))).toEqual(
+      shards.toSorted((left, right) => left.name.localeCompare(right.name)),
+    );
+    expect(new Set(selected.map((shard) => shard.name))).toHaveProperty("size", shards.length);
+    expect(selectExtensionOxlintStripe(shards, { index: 9, total: 9 })).toEqual([]);
+    expect(selectExtensionOxlintStripe([], { index: 1, total: 6 })).toEqual([]);
+    expect(() =>
+      selectExtensionOxlintStripe(createOxlintShards({ cwd: "/repo" }), {
+        index: 1,
+        total: 2,
+      }),
+    ).toThrow("--extension-stripe requires an extension-only shard selection");
+  });
+
   it.each([
     ["--core-stripe=0/3"],
     ["--core-stripe=4/3"],
@@ -558,6 +620,15 @@ describe("run-oxlint", () => {
     ["--core-stripe", "1/3"],
   ])("rejects invalid core stripe arguments: %s", (...args) => {
     expect(() => parseShardRunnerArgs(args)).toThrow(/--core-stripe/u);
+  });
+
+  it.each([
+    ["--extension-stripe=0/6"],
+    ["--extension-stripe=7/6"],
+    ["--extension-stripe=1/0"],
+    ["--extension-stripe=wat"],
+  ])("rejects invalid extension stripe arguments: %s", (...args) => {
+    expect(() => parseShardRunnerArgs(args)).toThrow(/--extension-stripe/u);
   });
 
   it.each([["--only"], ["--only", "--split-core"], ["--only="], ["--only=-h"]])(
@@ -619,8 +690,9 @@ describe("run-oxlint", () => {
   });
 
   it("falls back to the full extension shard when Windows extension dirs are unavailable", () => {
-    const shards = createWindowsExtensionShards({
+    const shards = createExtensionOxlintShards({
       cwd: "/repo",
+      platform: "win32",
       readDir: () => {
         throw new Error("missing extensions");
       },
