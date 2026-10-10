@@ -45,6 +45,7 @@ export function resolveEmbeddedDispatchBindingSource(input: {
   }
   if (
     input.credentialSource?.kind !== "direct" ||
+    input.credentialSource.authorization !== "declared" ||
     (input.credentialSource.evidence !== "environment" &&
       input.credentialSource.evidence !== "provider-config") ||
     auth.mode !== "api-key" ||

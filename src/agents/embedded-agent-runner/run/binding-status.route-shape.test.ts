@@ -147,6 +147,46 @@ it("attests a SecretRef-backed route through real secret egress without emitting
   expect(emitted).not.toContain(ENV_ID);
 });
 
+it.each([
+  { label: "ambient", authorization: "ambient" as const, expected: unknown },
+  { label: "declared", authorization: "declared" as const, expected: positive },
+])(
+  "verifies the real physical request without overstating $label plaintext key authorization",
+  async ({ authorization, expected }) => {
+    const { credentialSource, apiKeyInfo } = await resolveRoute();
+    const source = resolveEmbeddedDispatchBindingSource({
+      credentialSource: {
+        ...(credentialSource as object),
+        authorization,
+      } as never,
+      apiKeyInfo: { ...apiKeyInfo, apiKey: PLAINTEXT },
+      resolvedApiKey: PLAINTEXT,
+      runtimeAuthReplaced: false,
+      pluginHarnessOwnsTransport: false,
+    });
+    expect(source).toBe(authorization === "declared" ? "direct-api-key" : "unknown");
+
+    const resolved = resolveEmbeddedAgentStream({
+      currentStreamFn: streamSimple,
+      llmRuntime: { ...defaultLlmRuntime, streamSimple },
+      sessionId: `route-shape-plaintext-${authorization}`,
+      model,
+      resolvedApiKey: PLAINTEXT,
+      bindingAuthSource: source,
+    });
+    const message = await (
+      await resolved.streamFn(model, {
+        messages: [{ role: "user", content: "ping", timestamp: 1 }],
+      })
+    ).result();
+    expect(message.stopReason, message.errorMessage).toBe("stop");
+    expect(network.guarded).toHaveBeenCalledTimes(1);
+    const sent = new Headers(network.guarded.mock.calls[0]?.[0]?.init?.headers);
+    expect(sent.get("authorization")).toBe(`Bearer ${PLAINTEXT}`);
+    expect(resolved.getBindingStatus?.(message)).toEqual(expected);
+  },
+);
+
 it("stays unknown when the sentinel was never registered and egress refuses it", async () => {
   const forged = "oc-sent-v2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.end";
   const { credentialSource, apiKeyInfo } = await resolveRoute();
