@@ -4230,7 +4230,7 @@ describe("package artifact reuse", () => {
     expect(checkTestboxSteps.indexOf(closeTestboxSshStep)).toBe(
       checkTestboxSteps.indexOf(runTestboxStep) + 1,
     );
-    expect(runArmTestboxStep.if).toBe("always()");
+    expect(runArmTestboxStep.if).toBe("github.event_name == 'workflow_dispatch' && always()");
     expect(runBuildArtifactsTestboxStep.if).toBe(
       "github.event_name == 'workflow_dispatch' && always()",
     );

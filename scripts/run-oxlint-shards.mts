@@ -15,7 +15,7 @@ import {
 } from "./lib/managed-child-process.mts";
 import { shouldPrepareExtensionPackageBoundaryArtifacts } from "./run-oxlint.mts";
 
-const DEFAULT_WINDOWS_EXTENSION_CHUNK_SIZE = 8;
+const DEFAULT_EXTENSION_CHUNK_SIZE = 8;
 const DEFAULT_SHARD_HEARTBEAT_MS = 30_000;
 const DEFAULT_SHARD_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_SHARD_KILL_GRACE_MS = 5_000;
@@ -34,15 +34,16 @@ const OXLINT_SOURCE_FILE_PATTERN = /\.[cm]?[jt]sx?$/;
 const PARENT_TERMINATION_SIGNALS = ["SIGINT", "SIGTERM"] satisfies NodeJS.Signals[];
 
 type OxlintShard = { name: string; args: string[] };
-type CoreStripe = { index: number; total: number };
+type ShardStripe = { index: number; total: number };
 type HostResources = { logicalCpuCount: number; totalMemoryBytes: number };
 type ReadDirectoryEntries = (target: string, options: { withFileTypes: true }) => Dirent[];
 type DirectoryOptions = { cwd?: string; readDir?: ReadDirectoryEntries };
 type DirectoryLookup = Required<DirectoryOptions>;
 type ShardOptions = DirectoryOptions & { env?: NodeJS.ProcessEnv };
 type PlatformOptions = { env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform };
-type PlatformShardOptions = ShardOptions & PlatformOptions & { splitCore?: boolean };
 type ResourceOptions = PlatformOptions & { hostResources?: HostResources };
+type PlatformShardOptions = ShardOptions &
+  ResourceOptions & { splitCore?: boolean; splitExtensions?: boolean };
 type RunnerOptions = {
   env: NodeJS.ProcessEnv;
   extraArgs: string[];
@@ -79,12 +80,22 @@ export function createOxlintShards({
   cwd = process.cwd(),
   env = process.env,
   platform = process.platform,
+  hostResources = resolveHostResources(),
   readDir = fs.readdirSync,
   splitCore = false,
+  splitExtensions = false,
 }: PlatformShardOptions = {}) {
   const coreShards = splitCore ? createCoreOxlintShards({ cwd, readDir }) : [CORE_SHARD];
-  const extensionShards =
-    platform === "win32" ? createWindowsExtensionShards({ cwd, env, readDir }) : [EXTENSIONS_SHARD];
+  // Unsplit plugin lint can exceed small-host RAM even with a single lint thread.
+  // Chunk serial runs; explicit stripes use independently bounded Programs that stay serial.
+  const chunkExtensions =
+    splitExtensions ||
+    platform === "win32" ||
+    (hostResources.totalMemoryBytes < CI_PARALLEL_MIN_MEMORY_BYTES &&
+      shouldRunOxlintShardsSerial({ env, platform, hostResources }));
+  const extensionShards = chunkExtensions
+    ? createExtensionOxlintShards({ cwd, env, platform, readDir })
+    : [EXTENSIONS_SHARD];
 
   return [...coreShards, ...extensionShards, SCRIPTS_SHARD];
 }
@@ -113,19 +124,21 @@ function createCoreShard(target: string) {
 }
 
 /**
- * Chunks extension lint targets to avoid Windows command-line and memory limits.
+ * Chunks plugin lint targets for Windows and memory-constrained serial runs.
  */
-export function createWindowsExtensionShards({
+export function createExtensionOxlintShards({
   cwd = process.cwd(),
   env = process.env,
+  platform = process.platform,
   readDir = fs.readdirSync,
-}: ShardOptions = {}) {
+}: ShardOptions & PlatformOptions = {}) {
   const entries = listExtensionEntries({ cwd, readDir });
   if (entries.dirs.length === 0 && entries.rootFiles.length === 0) {
     return [EXTENSIONS_SHARD];
   }
 
-  const chunkSize = resolveWindowsExtensionChunkSize(env);
+  const chunkSize =
+    platform === "win32" ? resolveWindowsExtensionChunkSize(env) : DEFAULT_EXTENSION_CHUNK_SIZE;
   const shards: OxlintShard[] = [];
 
   if (entries.rootFiles.length > 0) {
@@ -153,7 +166,7 @@ export function resolveWindowsExtensionChunkSize(env: NodeJS.ProcessEnv = proces
   return resolvePositiveEnvIntWithFallback(
     env,
     "OPENCLAW_OXLINT_WINDOWS_EXTENSION_CHUNK_SIZE",
-    DEFAULT_WINDOWS_EXTENSION_CHUNK_SIZE,
+    DEFAULT_EXTENSION_CHUNK_SIZE,
   );
 }
 
@@ -254,15 +267,19 @@ export async function main(
   const runner = path.resolve("scripts", "run-oxlint.mjs");
   const shardArgs = parseShardRunnerArgs(extraArgs);
   const env = resolveLocalCheckEnv(runtimeEnv);
+  const hostResources = resolveHostResources();
+  const splitExtensions = shardArgs.extensionStripe !== undefined;
   const shards = createOxlintShards({
     cwd: process.cwd(),
     env,
     platform: process.platform,
+    hostResources,
     splitCore: shardArgs.splitCore,
+    splitExtensions,
   });
-  const selectedShards = selectCoreOxlintStripe(
-    filterOxlintShards(shards, shardArgs.only),
-    shardArgs.coreStripe,
+  const selectedShards = selectExtensionOxlintStripe(
+    selectCoreOxlintStripe(filterOxlintShards(shards, shardArgs.only), shardArgs.coreStripe),
+    shardArgs.extensionStripe,
   );
 
   ensureRepoToolNodeModulesLink(resolveRepoToolBinPath("oxlint"));
@@ -293,9 +310,10 @@ export async function main(
     const shardConcurrency = resolveOxlintShardConcurrency({
       env,
       platform: process.platform,
+      hostResources,
       splitCore: shardArgs.splitCore,
+      splitExtensions,
     });
-    const hostResources = resolveHostResources();
     // stderr: stdout may carry machine-readable oxlint output for callers.
     console.error(
       `[oxlint] shard concurrency ${Math.max(1, Math.min(shardConcurrency, selectedShards.length))} ` +
@@ -334,7 +352,8 @@ function resolveHostResources(hostResources?: HostResources) {
 export function parseShardRunnerArgs(args: string[]) {
   const only = new Set<string>();
   const oxlintArgs: string[] = [];
-  let coreStripe: CoreStripe | undefined;
+  let coreStripe: ShardStripe | undefined;
+  let extensionStripe: ShardStripe | undefined;
   let splitCore = false;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -347,12 +366,24 @@ export function parseShardRunnerArgs(args: string[]) {
       continue;
     }
     if (arg === "--core-stripe") {
-      coreStripe = parseCoreStripe(args[index + 1]);
+      coreStripe = parseShardStripe(args[index + 1], "--core-stripe");
       index += 1;
       continue;
     }
     if (arg.startsWith("--core-stripe=")) {
-      coreStripe = parseCoreStripe(arg.slice("--core-stripe=".length));
+      coreStripe = parseShardStripe(arg.slice("--core-stripe=".length), "--core-stripe");
+      continue;
+    }
+    if (arg === "--extension-stripe") {
+      extensionStripe = parseShardStripe(args[index + 1], "--extension-stripe");
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--extension-stripe=")) {
+      extensionStripe = parseShardStripe(
+        arg.slice("--extension-stripe=".length),
+        "--extension-stripe",
+      );
       continue;
     }
     if (arg === "--only") {
@@ -370,10 +401,10 @@ export function parseShardRunnerArgs(args: string[]) {
   if (coreStripe && !splitCore) {
     throw new Error("--core-stripe requires --split-core");
   }
-  return { coreStripe, only, oxlintArgs, splitCore };
+  return { coreStripe, extensionStripe, only, oxlintArgs, splitCore };
 }
 
-function parseCoreStripe(value: string | undefined): CoreStripe {
+function parseShardStripe(value: string | undefined, flag: string): ShardStripe {
   const match = /^(\d+)\/(\d+)$/u.exec(value ?? "");
   const index = Number(match?.[1]);
   const total = Number(match?.[2]);
@@ -384,7 +415,7 @@ function parseCoreStripe(value: string | undefined): CoreStripe {
     total < 1 ||
     index > total
   ) {
-    throw new Error(`--core-stripe requires INDEX/TOTAL with 1 <= INDEX <= TOTAL; got: ${value}`);
+    throw new Error(`${flag} requires INDEX/TOTAL with 1 <= INDEX <= TOTAL; got: ${value}`);
   }
   return { index, total };
 }
@@ -413,7 +444,7 @@ export function filterOxlintShards<T extends { name: string }>(shards: T[], only
 }
 
 /** Aggregate one deterministic, disjoint stripe into a single core Program. */
-export function selectCoreOxlintStripe(shards: OxlintShard[], stripe: CoreStripe | undefined) {
+export function selectCoreOxlintStripe(shards: OxlintShard[], stripe: ShardStripe | undefined) {
   if (!stripe) {
     return shards;
   }
@@ -432,6 +463,23 @@ export function selectCoreOxlintStripe(shards: OxlintShard[], stripe: CoreStripe
       args: ["--tsconfig", CORE_TS_CONFIG, ...targets],
     },
   ];
+}
+
+/** Select one deterministic, disjoint stripe of independently bounded extension Programs. */
+export function selectExtensionOxlintStripe(
+  shards: OxlintShard[],
+  stripe: ShardStripe | undefined,
+) {
+  if (!stripe) {
+    return shards;
+  }
+  if (shards.length === 0) {
+    return [];
+  }
+  if (shards.some((shard) => !shard.name.startsWith("extensions:"))) {
+    throw new Error("--extension-stripe requires an extension-only shard selection");
+  }
+  return shards.filter((_, index) => index % stripe.total === stripe.index - 1);
 }
 
 export function shouldPrepareExtensionPackageBoundaryArtifactsForShards(
@@ -462,8 +510,9 @@ export function resolveOxlintShardConcurrency({
   platform = process.platform,
   hostResources,
   splitCore = false,
-}: ResourceOptions & { splitCore?: boolean } = {}) {
-  if (shouldRunOxlintShardsSerial({ env, platform, hostResources })) {
+  splitExtensions = false,
+}: ResourceOptions & { splitCore?: boolean; splitExtensions?: boolean } = {}) {
+  if (splitExtensions || shouldRunOxlintShardsSerial({ env, platform, hostResources })) {
     return 1;
   }
 
