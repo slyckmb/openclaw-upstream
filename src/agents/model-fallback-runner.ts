@@ -486,7 +486,9 @@ async function runWithModelFallbackInternal<T>(
             continue;
           }
           runOptions = { allowTransientCooldownProbe: true };
-          transientProbeSlotForAttempt = candidateProbeSlot;
+          if (isTransientCooldownReason) {
+            transientProbeSlotForAttempt = candidateProbeSlot;
+          }
         }
         attemptedDuringCooldown = true;
         await observeCandidateDecision("probe_cooldown_candidate", {

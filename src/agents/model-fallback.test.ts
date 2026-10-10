@@ -1726,6 +1726,61 @@ describe("runWithModelFallback", () => {
       ]);
     });
 
+    it("does not spend a transient probe slot when a billing probe fails with rate_limit", async () => {
+      const dir = await makeAuthTempDir();
+      const store = apiKeyStore(["anthropic"], {
+        "anthropic:default": {
+          disabledUntil: Date.now() + 60_000,
+          disabledReason: "billing",
+          failureCounts: { billing: 1 },
+        },
+      });
+      setAuthRuntimeStore(dir, store);
+      const cfg = createModelFallbackConfig("anthropic/claude-opus-4-6", [
+        "anthropic/claude-sonnet-4-5",
+        "groq/llama-3.3-70b-versatile",
+      ]);
+      const run = vi.fn(async (provider: string, model: string) => {
+        if (model === "claude-opus-4-6") {
+          // The next sibling is in transient cooldown; the primary was a
+          // billing-recovery probe and must not consume its transient slot.
+          store.usageStats!["anthropic:default"] = {
+            cooldownUntil: Date.now() + 300_000,
+            cooldownReason: "rate_limit",
+            failureCounts: { rate_limit: 1 },
+          };
+          throw new Error("Still rate limited");
+        }
+        if (provider === "anthropic" && model === "claude-sonnet-4-5") {
+          return "sonnet success";
+        }
+        throw new Error(`unexpected fallback: ${provider}/${model}`);
+      });
+
+      const result = await runWithModelFallback({
+        cfg,
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+        run,
+        agentDir: dir,
+      });
+
+      expect(result.result).toBe("sonnet success");
+      expect(run.mock.calls).toMatchObject([
+        [
+          "anthropic",
+          "claude-opus-4-6",
+          { allowTransientCooldownProbe: true, isFinalFallbackAttempt: false },
+        ],
+        [
+          "anthropic",
+          "claude-sonnet-4-5",
+          { allowTransientCooldownProbe: true, isFinalFallbackAttempt: false },
+        ],
+      ]);
+      expect(run).toHaveBeenCalledTimes(2);
+    });
+
     it("does not consume transient probe slot when first same-provider probe fails with model_not_found", async () => {
       const { dir } = await makeAuthStoreWithCooldown("anthropic");
       const cfg = createModelFallbackConfig("anthropic/claude-opus-4-6", [
