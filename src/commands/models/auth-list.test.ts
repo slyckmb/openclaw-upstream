@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   ensureAuthProfileStore: vi.fn(),
   externalCliDiscoveryForProviderAuth: vi.fn(() => ({ kind: "none" })),
   loadModelsConfig: vi.fn(),
+  providerAuthAliasOverride: null as null | ((provider: string, cfg?: OpenClawConfig) => string),
   resolveAuthProfileDisplayLabel: vi.fn(({ profileId }: { profileId: string }) => profileId),
   resolveAuthStatePathForDisplay: vi.fn((agentDir: string) => `${agentDir}/openclaw-agent.sqlite`),
   resolveModelsTargetAgent: vi.fn((_cfg: OpenClawConfig, rawAgentId?: string) => {
@@ -28,6 +29,16 @@ vi.mock("../../agents/auth-profiles.js", () => ({
   resolveAuthProfileDisplayLabel: mocks.resolveAuthProfileDisplayLabel,
   resolveAuthStatePathForDisplay: mocks.resolveAuthStatePathForDisplay,
 }));
+
+vi.mock("../../agents/provider-auth-aliases.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../agents/provider-auth-aliases.js")>();
+  return {
+    ...original,
+    resolveProviderIdForAuth: (provider: string, params?: { config?: OpenClawConfig }) =>
+      mocks.providerAuthAliasOverride?.(provider, params?.config) ??
+      original.resolveProviderIdForAuth(provider, params),
+  };
+});
 
 vi.mock("./load-config.js", () => ({
   loadModelsConfig: mocks.loadModelsConfig,
@@ -60,6 +71,7 @@ function createRuntime(): OutputRuntimeEnv & { logs: string[]; jsonPayloads: unk
 describe("modelsAuthListCommand", () => {
   beforeEach(() => {
     mocks.loadModelsConfig.mockReset().mockResolvedValue({} as OpenClawConfig);
+    mocks.providerAuthAliasOverride = null;
     mocks.ensureAuthProfileStore.mockReset();
     mocks.externalCliDiscoveryForProviderAuth.mockClear();
     mocks.resolveAuthProfileDisplayLabel.mockClear();
@@ -131,6 +143,32 @@ describe("modelsAuthListCommand", () => {
       },
     ]);
     expect(JSON.stringify(runtime.jsonPayloads[0])).not.toContain("secret");
+  });
+
+  it("retains stored provider-alias profiles with the same config trust context as filtering", async () => {
+    const cfg = { plugins: { entries: {} } } as OpenClawConfig;
+    mocks.loadModelsConfig.mockResolvedValue(cfg);
+    mocks.providerAuthAliasOverride = (provider, selectedCfg) =>
+      provider === "legacy-openai" ? (selectedCfg === cfg ? "openai" : "legacy-openai") : provider;
+    mocks.ensureAuthProfileStore.mockReturnValue({
+      version: 1,
+      profiles: {
+        "legacy-openai:manual": {
+          type: "api_key",
+          provider: "legacy-openai",
+          key: "secret-value",
+        },
+      },
+    } satisfies AuthProfileStore);
+
+    const runtime = createRuntime();
+    await modelsAuthListCommand({ provider: "legacy-openai", json: true }, runtime);
+
+    expect(runtime.jsonPayloads[0]).toMatchObject({
+      provider: "openai",
+      profiles: [{ id: "legacy-openai:manual", provider: "openai" }],
+    });
+    expect(JSON.stringify(runtime.jsonPayloads[0])).not.toContain("secret-value");
   });
 
   it("shows the cooldown reason and re-authentication action in text and JSON", async () => {
