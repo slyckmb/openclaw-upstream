@@ -32,12 +32,17 @@ type AuthProfileSummary = {
   recoveryHint?: string;
 };
 
-function resolveProviderFilter(rawProvider: string | undefined): {
+function resolveProviderFilter(
+  rawProvider: string | undefined,
+  cfg: Awaited<ReturnType<typeof loadModelsConfig>>,
+): {
   provider: string | undefined;
   externalCliProvider: string | undefined;
   matches: (profile: AuthProfileSummary) => boolean;
 } {
-  const provider = rawProvider?.trim() ? resolveProviderIdForAuth(rawProvider) : undefined;
+  const provider = rawProvider?.trim()
+    ? resolveProviderIdForAuth(rawProvider, { config: cfg })
+    : undefined;
   if (!provider) {
     return {
       provider: undefined,
@@ -87,7 +92,7 @@ function summarizeProfile(params: {
       : undefined;
   return {
     id: params.profileId,
-    provider: resolveProviderIdForAuth(params.profile.provider),
+    provider: resolveProviderIdForAuth(params.profile.provider, { config: params.cfg }),
     type: params.profile.type,
     label: resolveAuthProfileDisplayLabel({
       cfg: params.cfg,
@@ -130,9 +135,13 @@ export async function modelsAuthListCommand(
   opts: { provider?: string; agent?: string; json?: boolean },
   runtime: RuntimeEnv,
 ) {
-  const cfg = await loadModelsConfig({ commandName: "models auth list", runtime });
+  const cfg = await loadModelsConfig({
+    commandName: "models auth list",
+    runtime,
+    provider: opts.provider,
+  });
   const { agentId, agentDir } = resolveModelsTargetAgent(cfg, opts.agent, { kind: "read" });
-  const providerFilter = resolveProviderFilter(opts.provider);
+  const providerFilter = resolveProviderFilter(opts.provider, cfg);
   const store = ensureAuthProfileStore(
     agentDir,
     providerFilter.externalCliProvider
