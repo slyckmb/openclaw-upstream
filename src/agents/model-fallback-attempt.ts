@@ -76,7 +76,7 @@ export type ModelFallbackRunOptions = {
   modelRoutingProvenance: ModelFallbackAttemptProvenance;
 };
 
-export function resolveFallbackAuthScope(params: {
+function resolveFallbackAuthScope(params: {
   userLockedAuthProfileId?: string;
   profileIds?: readonly string[];
 }): string | undefined {

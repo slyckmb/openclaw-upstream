@@ -8,11 +8,8 @@ const manifestPlugins = [] as const;
 
 function candidateRefs(params: Parameters<typeof resolveModelCandidateChain>[0]) {
   return resolveModelCandidateChain({ manifestPlugins, ...params }).map(
-    ({ provider, model, authProfileId }) => ({
-      provider,
-      model,
-      ...(authProfileId ? { authProfileId } : {}),
-    }),
+    ({ provider, model, authProfileId }) =>
+      authProfileId ? { provider, model, authProfileId } : { provider, model },
   );
 }
 

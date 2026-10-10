@@ -2,7 +2,7 @@ import { createHookRunner } from "../../../plugins/hooks.js";
 import type { completeEmbeddedAttemptResult } from "./attempt-result.js";
 import type { EmbeddedRunAttemptResult, EmbeddedRunAttemptTrajectoryRecorder } from "./types.js";
 
-export const TEST_OPERATIONAL_RUN_INSTANCE = { runId: "run-1" };
+const TEST_OPERATIONAL_RUN_INSTANCE = { runId: "run-1" };
 
 export function createResultFixture(params?: {
   terminal?: EmbeddedRunAttemptResult["terminal"];
