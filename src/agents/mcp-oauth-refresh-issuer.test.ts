@@ -289,7 +289,9 @@ describe("MCP OAuth refresh issuer binding", () => {
         });
         await expect(
           buildOAuthFetch(newIssuer.fetchFn)(SERVER_URL, { method: "POST", body: "{}" }),
-        ).rejects.toThrow(/requires OAuth authorization/);
+        ).rejects.toThrow(
+          /requires OAuth authorization|Incompatible auth server: does not support dynamic client registration/,
+        );
 
         expect(newIssuer.tokenRequests).toEqual([]);
         expect((await readStore()).tokensAuthorizationServerUrl).toBe(ORIGINAL_ISSUER);

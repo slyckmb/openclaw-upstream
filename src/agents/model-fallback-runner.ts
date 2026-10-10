@@ -54,7 +54,8 @@ import {
   type ModelFallbackRuntimeContext,
   type ModelFallbackStepHandler,
   recordFailedCandidateAttempt,
-  resolveFallbackAuthScope,
+  resolveFallbackCandidateAuthProfileIds,
+  resolveFallbackCandidateAuthScope,
   resolveFallbackSoonestCooldownExpiry,
   resolveLiveSessionModelSwitchRedirectIndex,
   resolveModelFallbackCandidateAgentRuntime,
@@ -167,6 +168,7 @@ async function runWithModelFallbackInternal<T>(
     model: params.model,
     fallbacksOverride: params.fallbacksOverride,
     requestedRouteResolution: params.requestedRouteResolution,
+    requestedAuthProfileId: params.requestedAuthProfileId,
     manifestPlugins: params.manifestPlugins,
   });
   const operatorModelPolicy = operatorAuthority?.modelPolicy;
@@ -201,7 +203,7 @@ async function runWithModelFallbackInternal<T>(
   let selectionChanged = false;
   let latestClassifiedResult: ModelFallbackClassifiedResult<T> | undefined;
   let exhaustionResult: ModelFallbackExhaustionResult<T> | undefined;
-  const cooldownProbeUsedProviders = new Set<string>();
+  const cooldownProbedSlots = new Set<string>();
   const tlsFailedProviders = new Set<string>();
   const notifyFallbackStep: ModelFallbackStepHandler = async (step) => {
     // Observations cannot replace candidate outcomes or stop a usable fallback.
@@ -334,16 +336,14 @@ async function runWithModelFallbackInternal<T>(
           profileId: userLockedAuthProfileId,
           includePendingOAuthRefresh: true,
         }).eligible;
-      let profileIds = authRuntime.resolveAuthProfileOrder({
+      const profileIds = resolveFallbackCandidateAuthProfileIds({
+        authRuntime,
         cfg: params.cfg,
         store: authStore,
-        provider: candidate.provider,
-        forModel: candidate.model,
-        includePendingOAuthRefresh: true,
+        candidate,
+        userLockedAuthProfileEligible,
+        userLockedAuthProfileId,
       });
-      if (userLockedAuthProfileEligible && userLockedAuthProfileId) {
-        profileIds = [...new Set([userLockedAuthProfileId, ...profileIds])];
-      }
       const quota = await authRuntime.maybeReprobeWhamBlockedProfiles({
         store: authStore,
         profileIds,
@@ -358,10 +358,11 @@ async function runWithModelFallbackInternal<T>(
         profileIdsByCandidate.set(candidate, candidateAuthProfileIds);
       }
     }
-    const candidateAuthScope = resolveFallbackAuthScope({
-      userLockedAuthProfileId: userLockedAuthProfileEligible ? userLockedAuthProfileId : undefined,
-      profileIds: candidateAuthProfileIds,
-    });
+    const candidateAuthScope = resolveFallbackCandidateAuthScope(
+      candidate,
+      candidateAuthProfileIds,
+      userLockedAuthProfileEligible ? userLockedAuthProfileId : undefined,
+    );
 
     // Suppress repeated auth failures for fallbacks; explicit primaries still report their error.
     if (!isPrimary && params.sessionId) {
@@ -393,7 +394,7 @@ async function runWithModelFallbackInternal<T>(
 
     let runOptions: Pick<ModelFallbackRunOptions, "allowTransientCooldownProbe"> | undefined;
     let attemptedDuringCooldown = false;
-    let transientProbeProviderForAttempt: string | null = null;
+    let transientProbeSlotForAttempt: string | null = null;
     if (
       authRuntime &&
       authStore &&
@@ -472,9 +473,9 @@ async function runWithModelFallbackInternal<T>(
           markProbeAttempt(now, probeThrottleKey);
         }
         if (shouldAllowCooldownProbeForReason(decision.reason)) {
-          // Same-provider siblings share one transient cooldown probe per run.
           const isTransientCooldownReason = shouldUseTransientCooldownProbeSlot(decision.reason);
-          if (isTransientCooldownReason && cooldownProbeUsedProviders.has(candidate.provider)) {
+          const candidateProbeSlot = candidate.authProfileId?.trim() || candidate.provider;
+          if (isTransientCooldownReason && cooldownProbedSlots.has(candidateProbeSlot)) {
             const error = `Provider ${candidate.provider} is in cooldown (probe already attempted this run)`;
             pushSkippedAttempt(error, decision.reason, authMode);
             await observeCandidateDecision("skip_candidate", {
@@ -486,7 +487,7 @@ async function runWithModelFallbackInternal<T>(
           }
           runOptions = { allowTransientCooldownProbe: true };
           if (isTransientCooldownReason) {
-            transientProbeProviderForAttempt = candidate.provider;
+            transientProbeSlotForAttempt = candidateProbeSlot;
           }
         }
         attemptedDuringCooldown = true;
@@ -605,10 +606,10 @@ async function runWithModelFallbackInternal<T>(
     if (isNonProviderRuntimeCoordinationError(err) || isTranscriptNotContinuableError(err)) {
       throw err;
     }
-    if (transientProbeProviderForAttempt) {
+    if (transientProbeSlotForAttempt) {
       const probeFailureReason = describeFailoverError(err).reason;
       if (!shouldPreserveTransientCooldownProbeSlot(probeFailureReason)) {
-        cooldownProbeUsedProviders.add(transientProbeProviderForAttempt);
+        cooldownProbedSlots.add(transientProbeSlotForAttempt);
       }
     }
     // Compaction owns context overflow; provider request ceilings can use another quota.

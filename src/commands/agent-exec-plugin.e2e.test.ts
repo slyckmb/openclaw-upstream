@@ -132,6 +132,16 @@ function buildExecProofConfig(): OpenClawConfig {
               maxTokens: 4096,
               agentRuntime: { id: "exec-proof" },
             },
+            {
+              id: "proof-fallback",
+              name: "Proof fallback model",
+              reasoning: false,
+              input: ["text"],
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+              contextWindow: 128000,
+              maxTokens: 4096,
+              agentRuntime: { id: "exec-proof" },
+            },
           ],
         },
       },
@@ -267,6 +277,89 @@ if (process.argv[2] === "--version") {
       }
     },
   );
+
+  it("does not activate an unrelated model-provider SecretRef for an explicit fallback chain", async () => {
+    const stateDir = tempDirs.make("openclaw-agent-exec-secret-scope-e2e-");
+    await writeHarnessPlugin(stateDir);
+    const baseConfig = buildExecProofConfig();
+    const config = {
+      ...baseConfig,
+      models: {
+        ...baseConfig.models,
+        providers: {
+          ...baseConfig.models?.providers,
+          "exec-proof": {
+            ...baseConfig.models?.providers?.["exec-proof"],
+            apiKey: { source: "env", provider: "default", id: "EXEC_PROOF_API_KEY" },
+          },
+          openrouter: {
+            api: "openai-responses",
+            baseUrl: "https://openrouter.ai/api/v1",
+            apiKey: { source: "env", provider: "default", id: "OPENROUTER_FREE_API_KEY" },
+            models: [],
+          },
+        },
+      },
+    } as OpenClawConfig;
+    await writeConfig(stateDir, config);
+    const childEnv = buildChildEnv(stateDir);
+    delete childEnv.EXEC_PROOF_API_KEY;
+    delete childEnv.OPENROUTER_FREE_API_KEY;
+    const source = buildCliSource([
+      "agent",
+      "exec",
+      "prove exact-chain secret isolation",
+      "--model",
+      "exec-proof/proof-model",
+      "--fallback",
+      "exec-proof/proof-fallback",
+      "--json",
+    ]);
+    const run = (env: NodeJS.ProcessEnv) =>
+      execFileAsync(process.execPath, ["--input-type=module", "--eval", source], {
+        cwd: path.resolve(import.meta.dirname, "../.."),
+        encoding: "utf8",
+        env,
+        timeout: 30_000,
+      });
+
+    const missingSelected = await run({
+      ...childEnv,
+      OPENROUTER_FREE_API_KEY: "unrelated-provider-proof-key",
+    }).catch((error: unknown) => {
+      if (!error || typeof error !== "object") {
+        throw error;
+      }
+      return error as { stdout?: string; stderr?: string };
+    });
+    const missingSelectedEnvelope = JSON.parse(missingSelected.stdout ?? "{}") as {
+      ok?: boolean;
+      provider?: string | null;
+      model?: string | null;
+      error?: { message?: string };
+    };
+    expect(missingSelectedEnvelope).toMatchObject({
+      ok: false,
+      provider: null,
+      model: null,
+      error: { message: expect.stringContaining("failed to resolve secrets") },
+    });
+
+    const { stdout, stderr } = await run({
+      ...childEnv,
+      EXEC_PROOF_API_KEY: "selected-provider-proof-key",
+    });
+
+    expect(stdout, stderr).not.toBe("");
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: true,
+      status: "ok",
+      final: "PLUGIN_HARNESS_OK",
+      provider: "exec-proof",
+      model: "proof-model",
+    });
+    expect(stderr).not.toContain("OPENROUTER_FREE_API_KEY");
+  });
 
   it("runs an operator-installed harness without retaining run state", async () => {
     const stateDir = tempDirs.make("openclaw-agent-exec-plugin-e2e-");

@@ -941,6 +941,7 @@ describe("CLI attempt execution", () => {
             defaultProvider: "claude-cli",
             defaultModel: "sonnet",
             configuredDefaultAuthProfileId: undefined,
+            explicitRunAuthProfileId: undefined,
             providerForAuthProfileValidation: "claude-cli",
             hasExplicitRunOverride: false,
             storedProviderOverride: undefined,

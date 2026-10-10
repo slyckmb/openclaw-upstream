@@ -73,6 +73,10 @@ export async function runEmbeddedAttemptWithBackend(
   );
   return copyCoreTtsAttemptResultProvenance(result, {
     ...attempt,
+    // Harness identity is assigned by selection; plugin-supplied public fields
+    // cannot attest the core native physical-execution boundary.
+    bindingStatus:
+      result.agentHarnessId === "openclaw" ? result.bindingStatus : { kind: "unknown" },
     ...(acceptedSessionSpawns.length ? { acceptedSessionSpawns } : {}),
     ...(modelAttempt ? { modelAttempt } : {}),
     // Only private prepared ownership permits a runtime to select the session model.

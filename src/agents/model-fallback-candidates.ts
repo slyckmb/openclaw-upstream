@@ -30,6 +30,7 @@ import type {
   ModelFallbackRouteOrigin,
   ModelFallbackRouteResolution,
 } from "./model-fallback.types.js";
+import { splitTrailingAuthProfile } from "./model-ref-profile.js";
 import {
   type ModelManifestNormalizationContext,
   modelKey,
@@ -60,6 +61,8 @@ type ModelCandidateChainParams = ModelManifestNormalizationContext & {
   /** An explicit list, including empty, replaces the configured model fallbacks. */
   fallbacksOverride?: string[];
   requestedRouteResolution?: ModelFallbackRouteResolution;
+  /** Exact auth profile explicitly attached to the requested primary candidate. */
+  requestedAuthProfileId?: string;
   /** Pure admission planning may use manifest policy without entering provider runtime hooks. */
   allowPluginNormalization?: boolean;
 };
@@ -76,7 +79,11 @@ function createModelCandidateCollector() {
     if (!candidate.provider || !candidate.model) {
       return;
     }
-    const key = JSON.stringify([candidate.provider, candidate.model]);
+    const key = JSON.stringify([
+      candidate.provider,
+      candidate.model,
+      candidate.authProfileId ?? "",
+    ]);
     if (seen.has(key)) {
       return;
     }
@@ -221,6 +228,7 @@ function resolveFallbackCandidateContext(params: ModelCandidateChainParams) {
     provider: params.provider,
     model: params.model,
     requestedRouteResolution: params.requestedRouteResolution,
+    requestedAuthProfileId: params.requestedAuthProfileId,
     allowPluginNormalization: params.allowPluginNormalization,
     fallbacksOverride: params.fallbacksOverride,
     agentsDefaultsModel: params.cfg?.agents?.defaults?.model,
@@ -334,7 +342,10 @@ function resolveFallbackCandidatesUncached(
       }) ?? normalizedPrimary;
   }
   addCandidate(
-    requestedCandidate,
+    {
+      ...requestedCandidate,
+      ...(params.requestedAuthProfileId ? { authProfileId: params.requestedAuthProfileId } : {}),
+    },
     "requested",
     params.manifestPlugins !== undefined ? "resolved" : requestedRouteResolution,
   );
@@ -358,9 +369,18 @@ function resolveFallbackCandidatesUncached(
     if (!resolved) {
       continue;
     }
+    const { profile } = splitTrailingAuthProfile(raw);
     // Fallbacks are explicit user intent; do not silently filter them by the
-    // model allowlist.
-    addCandidate(resolved.ref, "configured-fallback", "resolved");
+    // model allowlist. Preserve an exact profile binding as candidate identity
+    // instead of letting normal provider auth rotation own it.
+    addCandidate(
+      {
+        ...resolved.ref,
+        ...(profile ? { authProfileId: profile } : {}),
+      },
+      "configured-fallback",
+      "resolved",
+    );
   }
 
   if (params.fallbacksOverride === undefined && primary?.provider && primary.model) {

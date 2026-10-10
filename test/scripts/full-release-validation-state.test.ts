@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, assert, describe, expect, it } from "vitest";
+import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildFullReleaseCandidateBinding,
   buildFullReleaseCandidateRequest,
@@ -1375,6 +1375,15 @@ describe("release child attempt composition", () => {
 });
 
 describe("release decision policy", () => {
+  // Mock child runs belong to the upstream repository, regardless of the
+  // checkout's GitHub Actions owner/repo identity.
+  beforeEach(() => {
+    vi.stubEnv("GITHUB_REPOSITORY", "openclaw/openclaw");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   const nativeCiJobs = [
     "checks-windows-node-test-1",
     "checks-windows-node-test-2",

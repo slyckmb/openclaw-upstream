@@ -45,6 +45,10 @@ import { createExtensionRuntime, loadExtensionFromFactory } from "../sessions/ex
 import { SessionManager } from "../sessions/session-manager.js";
 import { SettingsManager } from "../sessions/settings-manager.js";
 import {
+  configureExactAuthBindingCompactionFallback,
+  createPreparedCodexCompactionPlans,
+} from "./compact.exact-auth.test-support.js";
+import {
   expectedNativeCompactionOptions,
   useCompactHooksSessionFixture,
 } from "./compact.hooks.fixture.test-support.js";
@@ -298,39 +302,6 @@ async function nativeCompactionArgs(
     agentHarnessId: overrides.agentHarnessId,
   });
   return params;
-}
-
-function createPreparedCodexCompactionPlans(modelId = "gpt-5.5") {
-  const modelRoute = {
-    provider: "openai",
-    modelId,
-    api: "openai-responses",
-    baseUrl: "https://api.openai.com/v1",
-    authRequirement: "api-key",
-    requestTransportOverrides: "none",
-    runtimePolicy: { compatibleIds: ["codex"] },
-  } as const;
-  const runtimeAuthPlan = {
-    providerForAuth: "openai",
-    modelId,
-    authProfileProviderForAuth: "openai",
-    harnessAuthProvider: "openai",
-    selectedAuthMode: "api-key",
-    modelRoute,
-  } as const;
-  return {
-    modelRoute,
-    runtimeAuthPlan,
-    runtimePlan: {
-      resolvedRef: {
-        provider: "openai",
-        modelId,
-        modelApi: "openai-responses",
-        harnessId: "codex",
-      },
-      auth: runtimeAuthPlan,
-    } as never,
-  };
 }
 
 const sessionHook = (action: string): SessionHookEvent | undefined =>
@@ -626,6 +597,29 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
       harnessId: "openclaw",
       modelRoute: undefined,
     });
+  });
+
+  it("rebuilds runtime plans when a same-model fallback changes the exact auth binding", async () => {
+    const { runtimeAuthPlan, runtimePlan } = createPreparedCodexCompactionPlans();
+    configureExactAuthBindingCompactionFallback();
+
+    const result = await compactEmbeddedAgentSessionDirect({
+      ...wrappedCompactionArgs({ provider: "openai", model: "gpt-5.5" }),
+      authProfileId: "openai:profile-a",
+      authProfileIdSource: "user",
+      modelFallbacksOverride: ["openai/gpt-5.5@openai:profile-b"],
+      runtimeAuthPlan,
+      runtimePlan,
+    });
+
+    expect(result).toMatchObject({ ok: true, result: { summary: "bound fallback summary" } });
+    expect(buildAgentRuntimePlanMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai",
+        modelId: "gpt-5.5",
+        sessionAuthProfileId: "openai:profile-b",
+      }),
+    );
   });
 
   it("rematerializes the downstream model for a resolved backup profile", async () => {
