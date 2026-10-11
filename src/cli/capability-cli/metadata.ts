@@ -15,6 +15,18 @@ export type CapabilityEnvelope = {
   provider?: string;
   model?: string;
   attempts: Array<Record<string, unknown>>;
+  /** Allowlisted same-run Gateway evidence; omitted for local runs or absent native facts. */
+  executionEvidence?: {
+    executionTrace?: { winnerProvider: string; winnerModel: string; fallbackUsed: boolean };
+    agentMeta?: {
+      bindingStatus?:
+        | { kind: "non-profile"; authMode: "api-key"; cliSession: "none" }
+        | { kind: "profile-bound" | "unknown" };
+      /** Native estimated usage cost, NOT an independent billing attestation. */
+      costUsd?: number;
+    };
+    usage?: { cost: { total: number } };
+  };
   inputs?: Array<Record<string, unknown>>;
   outputs: Array<Record<string, unknown>>;
   ignoredOverrides?: Array<Record<string, unknown>>;
@@ -36,7 +48,8 @@ export const CAPABILITY_METADATA: CapabilityMetadata[] = [
       "--agent",
       "--json",
     ],
-    resultShape: "normalized payloads plus provider/model attribution",
+    resultShape:
+      "normalized payloads plus provider/model and allowlisted native execution evidence",
   },
   {
     id: "model.list",

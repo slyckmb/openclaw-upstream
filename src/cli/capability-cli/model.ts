@@ -166,6 +166,75 @@ function normalizeModelRunThinking(value: unknown): ThinkLevel | undefined {
   return normalized;
 }
 
+/**
+ * A deliberately narrow, same-response projection for callers that need to
+ * validate the physical winning attempt. Never expose agentMeta wholesale:
+ * it can contain auth/session, prompt and runtime-private state.
+ *
+ * Missing facts stay missing. In particular, absent estimated cost is NOT $0,
+ * and empty fallbackAttempts is NOT proof that fallbackUsed is false.
+ */
+function projectGatewayModelRunEvidence(
+  meta:
+    | {
+        executionTrace?: {
+          winnerProvider?: unknown;
+          winnerModel?: unknown;
+          fallbackUsed?: unknown;
+        };
+        agentMeta?: {
+          bindingStatus?: { kind?: unknown; authMode?: unknown; cliSession?: unknown };
+          costUsd?: unknown;
+          usage?: { cost?: { total?: unknown } };
+        };
+        usage?: { cost?: { total?: unknown } };
+      }
+    | undefined,
+): CapabilityEnvelope["executionEvidence"] {
+  const trace = meta?.executionTrace;
+  const executionTrace =
+    typeof trace?.winnerProvider === "string" &&
+    trace.winnerProvider.length > 0 &&
+    typeof trace.winnerModel === "string" &&
+    trace.winnerModel.length > 0 &&
+    typeof trace.fallbackUsed === "boolean"
+      ? {
+          winnerProvider: trace.winnerProvider,
+          winnerModel: trace.winnerModel,
+          fallbackUsed: trace.fallbackUsed,
+        }
+      : undefined;
+  const status = meta?.agentMeta?.bindingStatus;
+  const bindingStatus =
+    status?.kind === "non-profile" && status.authMode === "api-key" && status.cliSession === "none"
+      ? ({ kind: "non-profile", authMode: "api-key", cliSession: "none" } as const)
+      : status?.kind === "profile-bound" || status?.kind === "unknown"
+        ? ({ kind: status.kind } as const)
+        : undefined;
+  const costUsd = meta?.agentMeta?.costUsd;
+  // Both native cost fields are independently retained when available so a
+  // downstream verifier can reject disagreements rather than select the zero.
+  const agentCost = typeof costUsd === "number" && Number.isFinite(costUsd) ? costUsd : undefined;
+  const usageTotal = meta?.usage?.cost?.total;
+  const usageCost =
+    typeof usageTotal === "number" && Number.isFinite(usageTotal) ? usageTotal : undefined;
+  if (!executionTrace && !bindingStatus && agentCost === undefined && usageCost === undefined) {
+    return undefined;
+  }
+  return {
+    ...(executionTrace ? { executionTrace } : {}),
+    ...(bindingStatus || agentCost !== undefined
+      ? {
+          agentMeta: {
+            ...(bindingStatus ? { bindingStatus } : {}),
+            ...(agentCost !== undefined ? { costUsd: agentCost } : {}),
+          },
+        }
+      : {}),
+    ...(usageCost !== undefined ? { usage: { cost: { total: usageCost } } } : {}),
+  };
+}
+
 async function runModelRun(params: {
   prompt: string;
   files?: string[];
@@ -291,7 +360,15 @@ async function runModelRun(params: {
           provider?: string;
           model?: string;
           fallbackAttempts?: Array<Record<string, unknown>>;
+          bindingStatus?: { kind?: unknown; authMode?: unknown; cliSession?: unknown };
+          costUsd?: unknown;
         };
+        executionTrace?: {
+          winnerProvider?: unknown;
+          winnerModel?: unknown;
+          fallbackUsed?: unknown;
+        };
+        usage?: { cost?: { total?: unknown } };
       };
     };
   } = await callGateway({
@@ -324,6 +401,7 @@ async function runModelRun(params: {
     mode: hasModelOverride ? GATEWAY_CLIENT_MODES.BACKEND : GATEWAY_CLIENT_MODES.CLI,
     ...(hasModelOverride ? { scopes: [ADMIN_SCOPE] } : {}),
   });
+  const executionEvidence = projectGatewayModelRunEvidence(response?.result?.meta);
   return {
     ok: true,
     capability: "model.run",
@@ -331,6 +409,8 @@ async function runModelRun(params: {
     provider: response?.result?.meta?.agentMeta?.provider,
     model: response?.result?.meta?.agentMeta?.model,
     attempts: response?.result?.meta?.agentMeta?.fallbackAttempts ?? [],
+    // Restricted projection of the SAME winning Gateway result, never catalog/request data.
+    ...(executionEvidence ? { executionEvidence } : {}),
     outputs: (response?.result?.payloads ?? []).map((payload) => ({
       text: payload.text,
       mediaUrl: payload.mediaUrl,
