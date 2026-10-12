@@ -1553,6 +1553,238 @@ describe("capability cli", () => {
     expect(attempts[0]?.reason).toBe("model_not_found");
   });
 
+  it("projects only same-run trusted Gateway winner, binding and independently present cost evidence", async () => {
+    mocks.callGateway.mockResolvedValueOnce({
+      result: {
+        payloads: [{ text: "synthetic public review" }],
+        meta: {
+          executionTrace: {
+            winnerProvider: "fixture",
+            winnerModel: "zero-model",
+            fallbackUsed: false,
+            attempts: [{ provider: "hidden", secret: "trace-secret" }],
+          },
+          agentMeta: {
+            provider: "fixture",
+            model: "zero-model",
+            costUsd: 0,
+            usage: { cost: { total: 0, hidden: "agent-usage-secret" } },
+            bindingStatus: {
+              kind: "non-profile",
+              authMode: "api-key",
+              cliSession: "none",
+              secret: "binding-secret",
+            },
+            credentialSource: "private-auth-secret",
+            finalPromptText: "private-context-secret",
+          },
+          usage: { cost: { total: 0, hidden: "usage-secret" } },
+          finalPromptText: "prompt-secret",
+        },
+      },
+    } as never);
+    await runCapability("model", "run", "--prompt", "public packet", "--gateway", "--json");
+    const output = firstJsonOutput();
+    expect(output?.executionEvidence).toEqual({
+      executionTrace: { winnerProvider: "fixture", winnerModel: "zero-model", fallbackUsed: false },
+      agentMeta: {
+        bindingStatus: { kind: "non-profile", authMode: "api-key", cliSession: "none" },
+        costUsd: 0,
+        usage: { cost: { total: 0 } },
+      },
+      usage: { cost: { total: 0 } },
+    });
+    const emitted = JSON.stringify(output);
+    for (const secret of [
+      "trace-secret",
+      "binding-secret",
+      "private-auth-secret",
+      "private-context-secret",
+      "prompt-secret",
+      "usage-secret",
+      "agent-usage-secret",
+    ]) {
+      expect(emitted).not.toContain(secret);
+    }
+  });
+
+  it("does not turn missing cost, trace, or unknown binding into positive proof", async () => {
+    mocks.callGateway.mockResolvedValueOnce({
+      result: {
+        payloads: [{ text: "synthetic" }],
+        meta: {
+          executionTrace: { winnerProvider: "fixture", winnerModel: "zero-model" },
+          agentMeta: {
+            provider: "fixture",
+            model: "zero-model",
+            bindingStatus: { kind: "unknown", token: "do-not-leak" },
+          },
+        },
+      },
+    } as never);
+    await runCapability("model", "run", "--prompt", "public packet", "--gateway", "--json");
+    const output = firstJsonOutput();
+    expect(output?.executionEvidence).toEqual({
+      agentMeta: { bindingStatus: { kind: "unknown" } },
+    });
+    expect(JSON.stringify(output)).not.toContain("do-not-leak");
+  });
+
+  it("does not normalize fallback or conflicting native costs to a clean result", async () => {
+    mocks.callGateway.mockResolvedValueOnce({
+      result: {
+        payloads: [{ text: "synthetic" }],
+        meta: {
+          executionTrace: {
+            winnerProvider: "fixture",
+            winnerModel: "zero-model",
+            fallbackUsed: true,
+          },
+          agentMeta: {
+            bindingStatus: { kind: "profile-bound" },
+            costUsd: 0,
+            usage: { cost: { total: 0.37 } },
+          },
+          usage: { cost: { total: 0.42 } },
+        },
+      },
+    } as never);
+    await runCapability("model", "run", "--prompt", "public packet", "--gateway", "--json");
+    expect(firstJsonOutput()?.executionEvidence).toEqual({
+      executionTrace: { winnerProvider: "fixture", winnerModel: "zero-model", fallbackUsed: true },
+      agentMeta: {
+        bindingStatus: { kind: "profile-bound" },
+        costUsd: 0,
+        usage: { cost: { total: 0.37 } },
+      },
+      usage: { cost: { total: 0.42 } },
+    });
+  });
+
+  it("omits untrusted or malformed native evidence without guessing values", async () => {
+    mocks.callGateway.mockResolvedValueOnce({
+      result: {
+        payloads: [{ text: "synthetic" }],
+        meta: {
+          executionTrace: {
+            winnerProvider: "fixture",
+            winnerModel: "zero-model",
+            fallbackUsed: "false",
+          },
+          agentMeta: { bindingStatus: { kind: "non-profile", authMode: "bad" }, costUsd: "0" },
+          usage: { cost: { total: "0" } },
+        },
+      },
+    } as never);
+    await runCapability("model", "run", "--prompt", "public packet", "--gateway", "--json");
+    expect(firstJsonOutput()).not.toHaveProperty("executionEvidence");
+  });
+
+  it("refuses partial-positive evidence when a native cost source is malformed", async () => {
+    mocks.callGateway.mockResolvedValueOnce({
+      result: {
+        payloads: [{ text: "synthetic review" }],
+        meta: {
+          executionTrace: {
+            winnerProvider: "fixture",
+            winnerModel: "zero-model",
+            fallbackUsed: false,
+          },
+          agentMeta: {
+            bindingStatus: { kind: "non-profile", authMode: "api-key", cliSession: "none" },
+            costUsd: 0,
+            usage: { cost: { total: "not-a-number" } },
+          },
+          usage: { cost: { total: 0 } },
+        },
+      },
+    } as never);
+    await runCapability("model", "run", "--prompt", "synthetic packet", "--gateway", "--json");
+    const output = firstJsonOutput();
+    expect(output).not.toHaveProperty("executionEvidence");
+    expect(output?.outputs).toEqual([{ text: "synthetic review" }]);
+  });
+
+  const validTrace = { winnerProvider: "fixture", winnerModel: "zero-model", fallbackUsed: false };
+  const validBinding = { kind: "non-profile", authMode: "api-key", cliSession: "none" };
+
+  it.each([
+    ["agentMeta.usage scalar", { agentMeta: { usage: 0.37 } }],
+    ["agentMeta.usage null", { agentMeta: { usage: null } }],
+    ["agentMeta.usage array", { agentMeta: { usage: [] } }],
+    ["agentMeta.usage.cost scalar", { agentMeta: { usage: { cost: 0.37 } } }],
+    ["agentMeta.usage.cost null", { agentMeta: { usage: { cost: null } } }],
+    ["agentMeta.usage.cost array", { agentMeta: { usage: { cost: [] } } }],
+    ["meta.usage scalar", { usage: 0.42 }],
+    ["meta.usage null", { usage: null }],
+    ["meta.usage array", { usage: [] }],
+    ["meta.usage.cost scalar", { usage: { cost: "0.42" } }],
+    ["meta.usage.cost null", { usage: { cost: null } }],
+    ["meta.usage.cost array", { usage: { cost: [] } }],
+  ])("refuses positive proof when a cost container is malformed: %s", async (_name, competitor) => {
+    const competing = competitor as { agentMeta?: Record<string, unknown>; usage?: unknown };
+    mocks.callGateway.mockResolvedValueOnce({
+      result: {
+        payloads: [{ text: "synthetic review" }],
+        meta: {
+          executionTrace: validTrace,
+          agentMeta: { bindingStatus: validBinding, costUsd: 0, ...competing.agentMeta },
+          ...("usage" in competing ? { usage: competing.usage } : {}),
+        },
+      },
+    } as never);
+    await runCapability("model", "run", "--prompt", "synthetic packet", "--gateway", "--json");
+    expect(firstJsonOutput()).not.toHaveProperty("executionEvidence");
+  });
+
+  it.each([
+    ["string fallbackUsed", { ...validTrace, fallbackUsed: "false" }],
+    ["numeric fallbackUsed", { ...validTrace, fallbackUsed: 0 }],
+    ["absent fallbackUsed", { winnerProvider: "fixture", winnerModel: "zero-model" }],
+    ["empty winnerModel", { ...validTrace, winnerModel: "" }],
+    ["non-string winnerProvider", { ...validTrace, winnerProvider: 7 }],
+    ["absent winner", { fallbackUsed: false }],
+  ])("never promotes a malformed trace to positive proof: %s", async (_name, trace) => {
+    mocks.callGateway.mockResolvedValueOnce({
+      result: {
+        payloads: [{ text: "synthetic review" }],
+        meta: {
+          executionTrace: trace,
+          agentMeta: { bindingStatus: validBinding, costUsd: 0 },
+        },
+      },
+    } as never);
+    await runCapability("model", "run", "--prompt", "synthetic packet", "--gateway", "--json");
+    const evidence = firstJsonOutput()?.executionEvidence as
+      | { executionTrace?: unknown }
+      | undefined;
+    expect(evidence?.executionTrace).toBeUndefined();
+  });
+
+  it.each([
+    ["absent bindingStatus", undefined],
+    ["wrong authMode", { ...validBinding, authMode: "oauth" }],
+    ["wrong cliSession", { ...validBinding, cliSession: "reused" }],
+    ["absent authMode", { kind: "non-profile", cliSession: "none" }],
+    ["absent cliSession", { kind: "non-profile", authMode: "api-key" }],
+    ["unrecognized kind", { kind: "other" }],
+  ])("never promotes a non-positive binding to non-profile proof: %s", async (_name, status) => {
+    mocks.callGateway.mockResolvedValueOnce({
+      result: {
+        payloads: [{ text: "synthetic review" }],
+        meta: {
+          executionTrace: validTrace,
+          agentMeta: { ...(status === undefined ? {} : { bindingStatus: status }), costUsd: 0 },
+        },
+      },
+    } as never);
+    await runCapability("model", "run", "--prompt", "synthetic packet", "--gateway", "--json");
+    const evidence = firstJsonOutput()?.executionEvidence as
+      | { agentMeta?: { bindingStatus?: { kind?: string } } }
+      | undefined;
+    expect(evidence?.agentMeta?.bindingStatus?.kind).not.toBe("non-profile");
+  });
+
   it("requests admin scope for gateway model probes with provider/model overrides", async () => {
     await runCapability(
       "model",
