@@ -212,8 +212,23 @@ function projectGatewayModelRunEvidence(
         ? ({ kind: status.kind } as const)
         : undefined;
   const costUsd = meta?.agentMeta?.costUsd;
-  // Both native cost fields are independently retained when available so a
-  // downstream verifier can reject disagreements rather than select the zero.
+  // Refuse a partial-positive projection if any native cost source is present
+  // but malformed. Dropping a string/non-finite contradictory cost while
+  // retaining another numeric zero would falsely enable downstream admission.
+  const observedCostValues = [
+    costUsd,
+    meta?.agentMeta?.usage?.cost?.total,
+    meta?.usage?.cost?.total,
+  ];
+  if (
+    observedCostValues.some(
+      (value) => value !== undefined && (typeof value !== "number" || !Number.isFinite(value)),
+    )
+  ) {
+    return undefined;
+  }
+  // Every valid native cost source is retained independently so a downstream
+  // verifier can reject disagreements rather than select the apparent zero.
   const agentCost = typeof costUsd === "number" && Number.isFinite(costUsd) ? costUsd : undefined;
   const usageTotal = meta?.usage?.cost?.total;
   const usageCost =

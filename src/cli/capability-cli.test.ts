@@ -1680,6 +1680,31 @@ describe("capability cli", () => {
     expect(firstJsonOutput()).not.toHaveProperty("executionEvidence");
   });
 
+  it("refuses partial-positive evidence when a native cost source is malformed", async () => {
+    mocks.callGateway.mockResolvedValueOnce({
+      result: {
+        payloads: [{ text: "synthetic review" }],
+        meta: {
+          executionTrace: {
+            winnerProvider: "fixture",
+            winnerModel: "zero-model",
+            fallbackUsed: false,
+          },
+          agentMeta: {
+            bindingStatus: { kind: "non-profile", authMode: "api-key", cliSession: "none" },
+            costUsd: 0,
+            usage: { cost: { total: "not-a-number" } },
+          },
+          usage: { cost: { total: 0 } },
+        },
+      },
+    } as never);
+    await runCapability("model", "run", "--prompt", "synthetic packet", "--gateway", "--json");
+    const output = firstJsonOutput();
+    expect(output).not.toHaveProperty("executionEvidence");
+    expect(output?.outputs).toEqual([{ text: "synthetic review" }]);
+  });
+
   it("requests admin scope for gateway model probes with provider/model overrides", async () => {
     await runCapability(
       "model",
