@@ -218,16 +218,28 @@ function projectGatewayModelRunEvidence(
   const usageTotal = meta?.usage?.cost?.total;
   const usageCost =
     typeof usageTotal === "number" && Number.isFinite(usageTotal) ? usageTotal : undefined;
-  if (!executionTrace && !bindingStatus && agentCost === undefined && usageCost === undefined) {
+  const agentUsageTotal = meta?.agentMeta?.usage?.cost?.total;
+  const agentUsageCost =
+    typeof agentUsageTotal === "number" && Number.isFinite(agentUsageTotal)
+      ? agentUsageTotal
+      : undefined;
+  if (
+    !executionTrace &&
+    !bindingStatus &&
+    agentCost === undefined &&
+    usageCost === undefined &&
+    agentUsageCost === undefined
+  ) {
     return undefined;
   }
   return {
     ...(executionTrace ? { executionTrace } : {}),
-    ...(bindingStatus || agentCost !== undefined
+    ...(bindingStatus || agentCost !== undefined || agentUsageCost !== undefined
       ? {
           agentMeta: {
             ...(bindingStatus ? { bindingStatus } : {}),
             ...(agentCost !== undefined ? { costUsd: agentCost } : {}),
+            ...(agentUsageCost !== undefined ? { usage: { cost: { total: agentUsageCost } } } : {}),
           },
         }
       : {}),

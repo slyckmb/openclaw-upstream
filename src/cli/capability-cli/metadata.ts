@@ -24,6 +24,7 @@ export type CapabilityEnvelope = {
         | { kind: "profile-bound" | "unknown" };
       /** Native estimated usage cost, NOT an independent billing attestation. */
       costUsd?: number;
+      usage?: { cost: { total: number } };
     };
     usage?: { cost: { total: number } };
   };

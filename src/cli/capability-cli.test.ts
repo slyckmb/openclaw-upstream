@@ -1568,6 +1568,7 @@ describe("capability cli", () => {
             provider: "fixture",
             model: "zero-model",
             costUsd: 0,
+            usage: { cost: { total: 0, hidden: "agent-usage-secret" } },
             bindingStatus: {
               kind: "non-profile",
               authMode: "api-key",
@@ -1589,6 +1590,7 @@ describe("capability cli", () => {
       agentMeta: {
         bindingStatus: { kind: "non-profile", authMode: "api-key", cliSession: "none" },
         costUsd: 0,
+        usage: { cost: { total: 0 } },
       },
       usage: { cost: { total: 0 } },
     });
@@ -1600,6 +1602,7 @@ describe("capability cli", () => {
       "private-context-secret",
       "prompt-secret",
       "usage-secret",
+      "agent-usage-secret",
     ]) {
       expect(emitted).not.toContain(secret);
     }
@@ -1637,7 +1640,11 @@ describe("capability cli", () => {
             winnerModel: "zero-model",
             fallbackUsed: true,
           },
-          agentMeta: { bindingStatus: { kind: "profile-bound" }, costUsd: 0 },
+          agentMeta: {
+            bindingStatus: { kind: "profile-bound" },
+            costUsd: 0,
+            usage: { cost: { total: 0.37 } },
+          },
           usage: { cost: { total: 0.42 } },
         },
       },
@@ -1645,7 +1652,11 @@ describe("capability cli", () => {
     await runCapability("model", "run", "--prompt", "public packet", "--gateway", "--json");
     expect(firstJsonOutput()?.executionEvidence).toEqual({
       executionTrace: { winnerProvider: "fixture", winnerModel: "zero-model", fallbackUsed: true },
-      agentMeta: { bindingStatus: { kind: "profile-bound" }, costUsd: 0 },
+      agentMeta: {
+        bindingStatus: { kind: "profile-bound" },
+        costUsd: 0,
+        usage: { cost: { total: 0.37 } },
+      },
       usage: { cost: { total: 0.42 } },
     });
   });
