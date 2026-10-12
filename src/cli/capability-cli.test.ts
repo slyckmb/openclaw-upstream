@@ -1705,6 +1705,86 @@ describe("capability cli", () => {
     expect(output?.outputs).toEqual([{ text: "synthetic review" }]);
   });
 
+  const validTrace = { winnerProvider: "fixture", winnerModel: "zero-model", fallbackUsed: false };
+  const validBinding = { kind: "non-profile", authMode: "api-key", cliSession: "none" };
+
+  it.each([
+    ["agentMeta.usage scalar", { agentMeta: { usage: 0.37 } }],
+    ["agentMeta.usage null", { agentMeta: { usage: null } }],
+    ["agentMeta.usage array", { agentMeta: { usage: [] } }],
+    ["agentMeta.usage.cost scalar", { agentMeta: { usage: { cost: 0.37 } } }],
+    ["agentMeta.usage.cost null", { agentMeta: { usage: { cost: null } } }],
+    ["agentMeta.usage.cost array", { agentMeta: { usage: { cost: [] } } }],
+    ["meta.usage scalar", { usage: 0.42 }],
+    ["meta.usage null", { usage: null }],
+    ["meta.usage array", { usage: [] }],
+    ["meta.usage.cost scalar", { usage: { cost: "0.42" } }],
+    ["meta.usage.cost null", { usage: { cost: null } }],
+    ["meta.usage.cost array", { usage: { cost: [] } }],
+  ])("refuses positive proof when a cost container is malformed: %s", async (_name, competitor) => {
+    const competing = competitor as { agentMeta?: Record<string, unknown>; usage?: unknown };
+    mocks.callGateway.mockResolvedValueOnce({
+      result: {
+        payloads: [{ text: "synthetic review" }],
+        meta: {
+          executionTrace: validTrace,
+          agentMeta: { bindingStatus: validBinding, costUsd: 0, ...competing.agentMeta },
+          ...("usage" in competing ? { usage: competing.usage } : {}),
+        },
+      },
+    } as never);
+    await runCapability("model", "run", "--prompt", "synthetic packet", "--gateway", "--json");
+    expect(firstJsonOutput()).not.toHaveProperty("executionEvidence");
+  });
+
+  it.each([
+    ["string fallbackUsed", { ...validTrace, fallbackUsed: "false" }],
+    ["numeric fallbackUsed", { ...validTrace, fallbackUsed: 0 }],
+    ["absent fallbackUsed", { winnerProvider: "fixture", winnerModel: "zero-model" }],
+    ["empty winnerModel", { ...validTrace, winnerModel: "" }],
+    ["non-string winnerProvider", { ...validTrace, winnerProvider: 7 }],
+    ["absent winner", { fallbackUsed: false }],
+  ])("never promotes a malformed trace to positive proof: %s", async (_name, trace) => {
+    mocks.callGateway.mockResolvedValueOnce({
+      result: {
+        payloads: [{ text: "synthetic review" }],
+        meta: {
+          executionTrace: trace,
+          agentMeta: { bindingStatus: validBinding, costUsd: 0 },
+        },
+      },
+    } as never);
+    await runCapability("model", "run", "--prompt", "synthetic packet", "--gateway", "--json");
+    const evidence = firstJsonOutput()?.executionEvidence as
+      | { executionTrace?: unknown }
+      | undefined;
+    expect(evidence?.executionTrace).toBeUndefined();
+  });
+
+  it.each([
+    ["absent bindingStatus", undefined],
+    ["wrong authMode", { ...validBinding, authMode: "oauth" }],
+    ["wrong cliSession", { ...validBinding, cliSession: "reused" }],
+    ["absent authMode", { kind: "non-profile", cliSession: "none" }],
+    ["absent cliSession", { kind: "non-profile", authMode: "api-key" }],
+    ["unrecognized kind", { kind: "other" }],
+  ])("never promotes a non-positive binding to non-profile proof: %s", async (_name, status) => {
+    mocks.callGateway.mockResolvedValueOnce({
+      result: {
+        payloads: [{ text: "synthetic review" }],
+        meta: {
+          executionTrace: validTrace,
+          agentMeta: { ...(status === undefined ? {} : { bindingStatus: status }), costUsd: 0 },
+        },
+      },
+    } as never);
+    await runCapability("model", "run", "--prompt", "synthetic packet", "--gateway", "--json");
+    const evidence = firstJsonOutput()?.executionEvidence as
+      | { agentMeta?: { bindingStatus?: { kind?: string } } }
+      | undefined;
+    expect(evidence?.agentMeta?.bindingStatus?.kind).not.toBe("non-profile");
+  });
+
   it("requests admin scope for gateway model probes with provider/model overrides", async () => {
     await runCapability(
       "model",

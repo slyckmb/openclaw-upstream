@@ -166,6 +166,29 @@ function normalizeModelRunThinking(value: unknown): ThinkLevel | undefined {
   return normalized;
 }
 
+function isAbsentOrFiniteNumber(value: unknown): boolean {
+  return value === undefined || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** `usage` may be absent; if present it and any `cost` inside must be records. */
+function isAbsentOrWellFormedCostContainer(usage: unknown): boolean {
+  if (usage === undefined) {
+    return true;
+  }
+  if (!isPlainRecord(usage)) {
+    return false;
+  }
+  const cost = usage.cost;
+  if (cost === undefined) {
+    return true;
+  }
+  return isPlainRecord(cost) && isAbsentOrFiniteNumber(cost.total);
+}
+
 /**
  * A deliberately narrow, same-response projection for callers that need to
  * validate the physical winning attempt. Never expose agentMeta wholesale:
@@ -213,17 +236,13 @@ function projectGatewayModelRunEvidence(
         : undefined;
   const costUsd = meta?.agentMeta?.costUsd;
   // Refuse a partial-positive projection if any native cost source is present
-  // but malformed. Dropping a string/non-finite contradictory cost while
+  // but malformed, including a malformed usage/cost container whose leaf would
+  // otherwise read as "absent". Dropping a corrupt competing source while
   // retaining another numeric zero would falsely enable downstream admission.
-  const observedCostValues = [
-    costUsd,
-    meta?.agentMeta?.usage?.cost?.total,
-    meta?.usage?.cost?.total,
-  ];
   if (
-    observedCostValues.some(
-      (value) => value !== undefined && (typeof value !== "number" || !Number.isFinite(value)),
-    )
+    !isAbsentOrFiniteNumber(costUsd) ||
+    !isAbsentOrWellFormedCostContainer(meta?.agentMeta?.usage) ||
+    !isAbsentOrWellFormedCostContainer(meta?.usage)
   ) {
     return undefined;
   }
