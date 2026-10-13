@@ -15,7 +15,11 @@ const mocks = vi.hoisted(() => ({
   loadModelsConfig: vi.fn(),
   providerAuthAliasOverride: null as
     | null
-    | ((provider: string, cfg?: OpenClawConfig, params?: { storedCredential?: boolean }) => string),
+    | ((
+        provider: string,
+        cfg?: OpenClawConfig,
+        params?: import("../../agents/provider-auth-aliases.js").ProviderAuthAliasLookupParams,
+      ) => string),
   resolveAuthProfileDisplayLabel: vi.fn(({ profileId }: { profileId: string }) => profileId),
   resolveAuthStatePathForDisplay: vi.fn((agentDir: string) => `${agentDir}/openclaw-agent.sqlite`),
   resolveModelsTargetAgent: vi.fn((_cfg: OpenClawConfig, rawAgentId?: string) => {
@@ -40,7 +44,10 @@ vi.mock("../../agents/provider-auth-aliases.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../agents/provider-auth-aliases.js")>();
   return {
     ...original,
-    resolveProviderIdForAuth: (provider: string, params?: { config?: OpenClawConfig }) =>
+    resolveProviderIdForAuth: (
+      provider: string,
+      params?: import("../../agents/provider-auth-aliases.js").ProviderAuthAliasLookupParams,
+    ) =>
       mocks.providerAuthAliasOverride?.(provider, params?.config, params) ??
       original.resolveProviderIdForAuth(provider, params),
   };
