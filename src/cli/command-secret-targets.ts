@@ -598,6 +598,41 @@ export function getModelsCommandSecretTargetIds(): Set<string> {
   return new Set(STATIC_MODEL_TARGET_IDS);
 }
 
+function normalizeProviderId(value: unknown): string | undefined {
+  return typeof value === "string" ? normalizeOptionalLowercaseString(value) : undefined;
+}
+
+/** Model-provider credential targets scoped to a selected provider. */
+export function getModelsCommandSecretTargetsForProvider(params: {
+  config: OpenClawConfig;
+  providerId: string;
+  equivalentProviderIds?: Iterable<string>;
+}): {
+  targetIds: Set<string>;
+  allowedPaths: Set<string>;
+} {
+  const targetIds = getModelsCommandSecretTargetIds();
+  const providerIds = new Set(
+    [params.providerId, ...(params.equivalentProviderIds ?? [])]
+      .map((providerId) => normalizeProviderId(providerId))
+      .filter((providerId): providerId is string => Boolean(providerId)),
+  );
+  const allowedPaths = new Set<string>();
+  if (providerIds.size === 0) {
+    return { targetIds, allowedPaths };
+  }
+  for (const target of discoverConfigSecretTargetsByIds(params.config, targetIds)) {
+    const [root, providersRoot, concreteProviderId] = target.pathSegments;
+    if (root !== "models" || providersRoot !== "providers" || !concreteProviderId) {
+      continue;
+    }
+    if (providerIds.has(normalizeProviderId(concreteProviderId) ?? "")) {
+      allowedPaths.add(target.path);
+    }
+  }
+  return { targetIds, allowedPaths };
+}
+
 /** Credential targets required by memory embedding flows. */
 export function getMemoryEmbeddingCommandSecretTargetIds(): Set<string> {
   return new Set(STATIC_MEMORY_EMBEDDING_TARGET_IDS);

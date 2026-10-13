@@ -60,7 +60,10 @@ function summarizeProfile(params: {
       : undefined;
   return {
     id: params.profileId,
-    provider: resolveProviderIdForAuth(params.profile.provider),
+    provider: resolveProviderIdForAuth(params.profile.provider, {
+      config: params.cfg,
+      storedCredential: true,
+    }),
     type: params.profile.type,
     label: resolveAuthProfileDisplayLabel({
       cfg: params.cfg,
@@ -103,9 +106,15 @@ export async function modelsAuthListCommand(
   opts: { provider?: string; agent?: string; json?: boolean },
   runtime: RuntimeEnv,
 ) {
-  const cfg = await loadModelsConfig({ commandName: "models auth list", runtime });
+  const cfg = await loadModelsConfig({
+    commandName: "models auth list",
+    runtime,
+    provider: opts.provider,
+  });
   const { agentId, agentDir } = resolveModelsTargetAgent(cfg, opts.agent, { kind: "read" });
-  const provider = opts.provider?.trim() ? resolveProviderIdForAuth(opts.provider) : undefined;
+  const provider = opts.provider?.trim()
+    ? resolveProviderIdForAuth(opts.provider, { config: cfg })
+    : undefined;
   const store = ensureAuthProfileStore(
     agentDir,
     provider

@@ -7,6 +7,12 @@ const mocks = vi.hoisted(() => ({
   setRuntimeConfigSnapshot: vi.fn(),
   resolveCommandSecretRefsViaGateway: vi.fn(),
   getModelsCommandSecretTargetIds: vi.fn(),
+  getModelsCommandSecretTargetsForProvider: vi.fn(),
+  resolveProviderIdForAuth: vi.fn((provider: string) => provider.trim().toLowerCase()),
+}));
+
+vi.mock("../../agents/provider-auth-aliases.js", () => ({
+  resolveProviderIdForAuth: mocks.resolveProviderIdForAuth,
 }));
 
 vi.mock("../../config/config.js", () => ({
@@ -21,6 +27,7 @@ vi.mock("../../cli/command-secret-gateway.js", () => ({
 
 vi.mock("../../cli/command-secret-targets.js", () => ({
   getModelsCommandSecretTargetIds: mocks.getModelsCommandSecretTargetIds,
+  getModelsCommandSecretTargetsForProvider: mocks.getModelsCommandSecretTargetsForProvider,
 }));
 
 import { loadModelsConfig, loadModelsConfigWithSource } from "./load-config.js";
@@ -38,6 +45,10 @@ describe("models load-config", () => {
     mocks.getRuntimeConfig.mockReturnValue(runtimeConfig);
     mocks.getRuntimeConfigSourceSnapshot.mockReturnValue(params.sourceConfig);
     mocks.getModelsCommandSecretTargetIds.mockReturnValue(targetIds);
+    mocks.getModelsCommandSecretTargetsForProvider.mockReturnValue({
+      targetIds,
+      allowedPaths: new Set(["models.providers.openai.apiKey"]),
+    });
     mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
       resolvedConfig,
       diagnostics: params.diagnostics,
@@ -46,6 +57,9 @@ describe("models load-config", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.resolveProviderIdForAuth.mockImplementation((provider: string) =>
+      provider.trim().toLowerCase(),
+    );
   });
 
   it("returns source+resolved configs and sets runtime snapshot", async () => {
@@ -77,6 +91,101 @@ describe("models load-config", () => {
       sourceConfig,
       resolvedConfig,
       diagnostics: ["diag-one", "diag-two"],
+    });
+  });
+
+  it("scopes model secret resolution to the canonical selected provider", async () => {
+    const sourceConfig = { models: { providers: {} } };
+    mockResolvedConfigFlow({ sourceConfig, diagnostics: [] });
+
+    await loadModelsConfigWithSource({
+      commandName: "models auth list",
+      provider: " OpenAI ",
+    });
+
+    expect(mocks.getModelsCommandSecretTargetsForProvider).toHaveBeenCalledWith({
+      config: runtimeConfig,
+      providerId: "openai",
+      equivalentProviderIds: ["openai"],
+    });
+    expect(mocks.getModelsCommandSecretTargetIds).not.toHaveBeenCalled();
+    expect(mocks.resolveCommandSecretRefsViaGateway).toHaveBeenCalledWith({
+      config: runtimeConfig,
+      commandName: "models auth list",
+      targetIds,
+      allowedPaths: new Set(["models.providers.openai.apiKey"]),
+    });
+  });
+
+  it("fails closed to an empty provider scope if canonicalization unexpectedly returns empty", async () => {
+    const sourceConfig = { models: { providers: {} } };
+    mockResolvedConfigFlow({ sourceConfig, diagnostics: [] });
+    mocks.resolveProviderIdForAuth.mockReturnValueOnce("");
+    mocks.getModelsCommandSecretTargetsForProvider.mockReturnValueOnce({
+      targetIds,
+      allowedPaths: new Set(),
+    });
+
+    await loadModelsConfigWithSource({
+      commandName: "models auth list",
+      provider: "unexpected-provider",
+    });
+
+    expect(mocks.getModelsCommandSecretTargetsForProvider).toHaveBeenCalledWith({
+      config: runtimeConfig,
+      providerId: "",
+      equivalentProviderIds: [],
+    });
+    expect(mocks.getModelsCommandSecretTargetIds).not.toHaveBeenCalled();
+    expect(mocks.resolveCommandSecretRefsViaGateway).toHaveBeenCalledWith({
+      config: runtimeConfig,
+      commandName: "models auth list",
+      targetIds,
+      allowedPaths: new Set(),
+    });
+  });
+
+  it("includes configured provider aliases that resolve to the selected auth provider", async () => {
+    const aliasedRuntimeConfig = {
+      models: {
+        providers: {
+          "openai-compatible": { apiKey: "sk-runtime" }, // pragma: allowlist secret
+          google: { apiKey: "google-runtime" }, // pragma: allowlist secret
+        },
+      },
+    };
+    mocks.getRuntimeConfig.mockReturnValue(aliasedRuntimeConfig);
+    mocks.getRuntimeConfigSourceSnapshot.mockReturnValue(aliasedRuntimeConfig);
+    mocks.resolveProviderIdForAuth.mockImplementation((provider: string) => {
+      const normalized = provider.trim().toLowerCase();
+      return normalized === "legacy-openai" || normalized === "openai-compatible"
+        ? "openai"
+        : normalized;
+    });
+    mocks.getModelsCommandSecretTargetsForProvider.mockReturnValue({
+      targetIds,
+      allowedPaths: new Set(["models.providers.openai-compatible.apiKey"]),
+    });
+    mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
+      resolvedConfig,
+      diagnostics: [],
+    });
+
+    await loadModelsConfigWithSource({
+      commandName: "models auth list",
+      provider: "legacy-openai",
+    });
+
+    expect(mocks.getModelsCommandSecretTargetsForProvider).toHaveBeenCalledWith({
+      config: aliasedRuntimeConfig,
+      providerId: "openai",
+      equivalentProviderIds: ["openai-compatible"],
+    });
+    expect(mocks.resolveCommandSecretRefsViaGateway).toHaveBeenCalledWith({
+      config: aliasedRuntimeConfig,
+      commandName: "models auth list",
+      targetIds,
+      allowedPaths: new Set(["models.providers.openai-compatible.apiKey"]),
     });
   });
 
