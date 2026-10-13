@@ -13,7 +13,9 @@ const mocks = vi.hoisted(() => ({
   ensureAuthProfileStore: vi.fn(),
   externalCliDiscoveryForProviderAuth: vi.fn(() => ({ kind: "none" })),
   loadModelsConfig: vi.fn(),
-  providerAuthAliasOverride: null as null | ((provider: string, cfg?: OpenClawConfig) => string),
+  providerAuthAliasOverride: null as
+    | null
+    | ((provider: string, cfg?: OpenClawConfig, params?: { storedCredential?: boolean }) => string),
   resolveAuthProfileDisplayLabel: vi.fn(({ profileId }: { profileId: string }) => profileId),
   resolveAuthStatePathForDisplay: vi.fn((agentDir: string) => `${agentDir}/openclaw-agent.sqlite`),
   resolveModelsTargetAgent: vi.fn((_cfg: OpenClawConfig, rawAgentId?: string) => {
@@ -39,7 +41,7 @@ vi.mock("../../agents/provider-auth-aliases.js", async (importOriginal) => {
   return {
     ...original,
     resolveProviderIdForAuth: (provider: string, params?: { config?: OpenClawConfig }) =>
-      mocks.providerAuthAliasOverride?.(provider, params?.config) ??
+      mocks.providerAuthAliasOverride?.(provider, params?.config, params) ??
       original.resolveProviderIdForAuth(provider, params),
   };
 });
@@ -147,6 +149,29 @@ describe("modelsAuthListCommand", () => {
       },
     ]);
     expect(JSON.stringify(runtime.jsonPayloads[0])).not.toContain("secret");
+  });
+
+  it("does not apply endpoint-conditioned model-route aliases to stored credentials", async () => {
+    const cfg = { plugins: { entries: {} } } as OpenClawConfig;
+    mocks.loadModelsConfig.mockResolvedValue(cfg);
+    // Emulates the 9.7 resolver: a configured endpoint alias (arcee -> openrouter) applies to
+    // model routes but must not re-home a stored direct credential.
+    mocks.providerAuthAliasOverride = (provider, _cfg, params) =>
+      provider === "arcee" && !params?.storedCredential ? "openrouter" : provider;
+    mocks.ensureAuthProfileStore.mockReturnValue({
+      version: 1,
+      profiles: {
+        "arcee:direct": { type: "api_key", provider: "arcee", key: "secret-value" },
+      },
+    } satisfies AuthProfileStore);
+
+    const unfiltered = createRuntime();
+    await modelsAuthListCommand({ json: true }, unfiltered);
+    expect(JSON.stringify(unfiltered.jsonPayloads[0])).toContain('"provider":"arcee"');
+
+    const filtered = createRuntime();
+    await modelsAuthListCommand({ provider: "openrouter", json: true }, filtered);
+    expect(JSON.stringify(filtered.jsonPayloads[0])).not.toContain("arcee:direct");
   });
 
   it("retains stored provider-alias profiles with the same config trust context as filtering", async () => {

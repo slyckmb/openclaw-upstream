@@ -60,7 +60,10 @@ function summarizeProfile(params: {
       : undefined;
   return {
     id: params.profileId,
-    provider: resolveProviderIdForAuth(params.profile.provider, { config: params.cfg }),
+    provider: resolveProviderIdForAuth(params.profile.provider, {
+      config: params.cfg,
+      storedCredential: true,
+    }),
     type: params.profile.type,
     label: resolveAuthProfileDisplayLabel({
       cfg: params.cfg,
