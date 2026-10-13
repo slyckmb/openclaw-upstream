@@ -44,11 +44,18 @@ export type BlockReplyFlushContext =
 
 type EmbeddedAgentUsage = Omit<NormalizedUsage, "contextUsage">;
 
+/** Secret-free binding evidence from the successful winning physical execution. */
+export type AgentBindingStatus =
+  | { kind: "non-profile"; authMode: "api-key"; cliSession: "none" }
+  | { kind: "profile-bound" }
+  | { kind: "unknown" };
+
 export type EmbeddedAgentMeta = {
   sessionId: string;
   sessionFile?: string;
   provider: string;
   model: string;
+  bindingStatus?: AgentBindingStatus;
   contextTokens?: number;
   contextTokensSource?: "runtime" | "runtime-configured" | "resolved";
   agentHarnessId?: string;

@@ -401,6 +401,28 @@ describe("prepareTerminalWithSettledTurnFinalization", () => {
     });
   });
 
+  it("does not carry the settled attempt's binding status onto a finalized answer", async () => {
+    const attempt = {
+      ...settledFailedAttempt(),
+      bindingStatus: { kind: "non-profile", authMode: "api-key", cliSession: "none" } as const,
+    };
+    const finalAssistant = buildEmbeddedRunnerAssistant({
+      provider: "host-finalizer",
+      model: "summary-model",
+      content: [{ type: "text", text: "The exec tool failed: post-processing error." }],
+    });
+    backendMocks.runSettledFinalization.mockResolvedValueOnce({
+      outcome: "answered",
+      result: { assistant: finalAssistant, usage: finalAssistant.usage },
+    });
+
+    const result = await prepareTerminalWithSettledTurnFinalization(finalizationInput(attempt));
+
+    // The finalizer's physical call is not observed, so its answer must not
+    // inherit the earlier call's attestation: the terminal projection stays unknown.
+    expect(result.attempt.bindingStatus).toBeUndefined();
+  });
+
   it("retries empty finalization with fresh controls and retires prior timeout and Stop callbacks", async () => {
     vi.useFakeTimers();
     const attempt = settledFailedAttempt();

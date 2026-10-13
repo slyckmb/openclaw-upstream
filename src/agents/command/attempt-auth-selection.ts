@@ -1,3 +1,5 @@
+import { resolveCollapsedSessionAuthPinSource } from "../../config/sessions/auth-profile-override-provenance.js";
+import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { PluginMetadataSnapshot } from "../../plugins/plugin-metadata-snapshot.types.js";
 import { resolveAuthProfileOrder } from "../auth-profiles/order.js";
@@ -10,6 +12,34 @@ type HarnessAuthProfileSelection = {
   authProfileProvider: string;
   authProfileMode?: string;
 };
+
+type AttemptAuthProfileSelection = {
+  id: string;
+  source?: "auto" | "user";
+};
+
+export function resolveAttemptAuthProfileSelection(params: {
+  candidateAuthProfileId?: string;
+  configuredAuthProfileId?: string;
+  sessionEntry?: SessionEntry;
+}): AttemptAuthProfileSelection | undefined {
+  const candidateAuthProfileId = params.candidateAuthProfileId?.trim();
+  if (candidateAuthProfileId) {
+    return { id: candidateAuthProfileId, source: "user" };
+  }
+  const sessionAuthProfileId = params.sessionEntry?.authProfileOverride?.trim();
+  const sessionAuthProfileSource = resolveCollapsedSessionAuthPinSource(params.sessionEntry);
+  if (sessionAuthProfileId && sessionAuthProfileSource !== "auto") {
+    return { id: sessionAuthProfileId, source: sessionAuthProfileSource };
+  }
+  const configuredAuthProfileId = params.configuredAuthProfileId?.trim();
+  if (configuredAuthProfileId) {
+    return { id: configuredAuthProfileId, source: "user" };
+  }
+  return sessionAuthProfileId
+    ? { id: sessionAuthProfileId, source: sessionAuthProfileSource }
+    : undefined;
+}
 
 export function resolveHarnessAuthProfileSelection(params: {
   config: OpenClawConfig;

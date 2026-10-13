@@ -7,6 +7,7 @@ import { isCommandLaneTaskTimeoutError } from "../process/command-queue.js";
 import { findAgentRunTerminalOutcome } from "./agent-run-terminal-error.js";
 import { isDefaultAgentRuntimeId, normalizeOptionalAgentRuntimeId } from "./agent-runtime-id.js";
 import { externalCliDiscoveryForProviders } from "./auth-profiles/external-cli-discovery.js";
+import type { AuthProfileStore } from "./auth-profiles/types.js";
 import { isOpenClawAbortableWrapper } from "./embedded-agent-runner/run/abortable.js";
 import {
   FailoverError,
@@ -70,10 +71,12 @@ export function isFallbackSummaryError(err: unknown): err is FallbackSummaryErro
 export type ModelFallbackRunOptions = {
   allowTransientCooldownProbe?: boolean;
   isFinalFallbackAttempt?: boolean;
+  /** Exact candidate auth binding. The inner run must treat this as a user lock. */
+  authProfileId?: string;
   modelRoutingProvenance: ModelFallbackAttemptProvenance;
 };
 
-export function resolveFallbackAuthScope(params: {
+function resolveFallbackAuthScope(params: {
   userLockedAuthProfileId?: string;
   profileIds?: readonly string[];
 }): string | undefined {
@@ -81,8 +84,47 @@ export function resolveFallbackAuthScope(params: {
   return params.userLockedAuthProfileId || params.profileIds?.find((id) => id.trim())?.trim();
 }
 
+/** An exact candidate binding is a hard lock: no ambient same-provider profile
+ * substitution or rotation is considered when the candidate carries one. */
+export function resolveFallbackCandidateAuthProfileIds(params: {
+  authRuntime: ModelFallbackAuthRuntime;
+  cfg: OpenClawConfig | undefined;
+  store: AuthProfileStore;
+  candidate: ModelCandidate;
+  userLockedAuthProfileEligible: boolean;
+  userLockedAuthProfileId?: string;
+}): string[] {
+  const candidateLock = params.candidate.authProfileId?.trim();
+  if (candidateLock) {
+    return [candidateLock];
+  }
+  const ordered = params.authRuntime.resolveAuthProfileOrder({
+    cfg: params.cfg,
+    store: params.store,
+    provider: params.candidate.provider,
+    forModel: params.candidate.model,
+    includePendingOAuthRefresh: true,
+  });
+  return params.userLockedAuthProfileEligible && params.userLockedAuthProfileId
+    ? [...new Set([params.userLockedAuthProfileId, ...ordered])]
+    : ordered;
+}
+
+export function resolveFallbackCandidateAuthScope(
+  candidate: ModelCandidate,
+  profileIds: readonly string[] | undefined,
+  userLockedAuthProfileId?: string,
+): string | undefined {
+  return resolveFallbackAuthScope({
+    userLockedAuthProfileId: candidate.authProfileId?.trim() || userLockedAuthProfileId,
+    profileIds,
+  });
+}
+
 export type ModelFallbackRuntimeContext = {
   cfg?: OpenClawConfig;
+  /** Exact auth profile explicitly attached to the requested primary candidate. */
+  requestedAuthProfileId?: string;
   agentId?: string;
   sessionKey?: string;
   resolveAgentHarnessRuntimeOverride?: (provider: string, model: string) => string | undefined;
@@ -241,9 +283,13 @@ async function runFallbackCandidate<T>(
   params: ModelFallbackCandidateRunParams<T>,
 ): Promise<{ ok: true; result: T } | { ok: false; error: unknown }> {
   try {
+    const runOptions =
+      params.authProfileId && params.options
+        ? { ...params.options, authProfileId: params.authProfileId }
+        : params.options;
     const run = () =>
-      params.options
-        ? params.run(params.provider, params.model, params.options)
+      runOptions
+        ? params.run(params.provider, params.model, runOptions)
         : params.run(params.provider, params.model);
     const result = params.deferSessionSuspension
       ? await runWithDeferredSessionSuspension(run, params.onDeferredSessionSuspension)

@@ -48,7 +48,9 @@ export function observeCatalogWorkerTasks() {
   const record = (message: unknown) => {
     if (
       isRecord(message) &&
-      message.worker === "prepared-model-catalog.worker.js" &&
+      // Vitest runs the TypeScript worker; built releases use JavaScript.
+      (message.worker === "prepared-model-catalog.worker.js" ||
+        message.worker === "prepared-model-catalog.worker.ts") &&
       message.outcome === "ok"
     ) {
       completedTasks++;

@@ -117,12 +117,17 @@ export async function prepareAgentCommandExecution(
     );
   }
 
+  const runtimeExactModelRefs =
+    opts.modelFallbacksOverride !== undefined && opts.model?.trim()
+      ? [opts.model, ...opts.modelFallbacksOverride]
+      : undefined;
   const cfg = await resolveAgentRuntimeConfig(runtime, {
     runtimeTargetsChannelSecrets: opts.deliver === true,
     runtimeChannelSecretScope:
       opts.deliver !== true && shouldResolveExplicitRecipientSession && recipientChannel
         ? { channel: recipientChannel, accountId: opts.accountId }
         : undefined,
+    ...(runtimeExactModelRefs ? { runtimeExactModelRefs } : {}),
   });
   const normalizedSpawned = normalizeSpawnedRunMetadata({
     spawnedBy: opts.spawnedBy,

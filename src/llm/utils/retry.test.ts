@@ -189,6 +189,46 @@ describe("isRetryableAssistantError", () => {
     expect(isRetryableAssistantError(errorMessage(text))).toBe(true);
   });
 
+  it("retries Gemini's ambiguous current-quota RESOURCE_EXHAUSTED 429", () => {
+    expect(
+      isRetryableAssistantError(
+        errorMessage(
+          "Google Generative AI API error (429): You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [code=RESOURCE_EXHAUSTED]",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("retries Gemini's ambiguous current-quota error across wrapped lines", () => {
+    expect(
+      isRetryableAssistantError(
+        errorMessage(
+          "Google Generative AI API error (429): You exceeded your current quota, please check your plan and billing details.\nFor more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits.\n[code=RESOURCE_EXHAUSTED]",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps Gemini current-quota errors with explicit daily evidence non-retryable", () => {
+    expect(
+      isRetryableAssistantError(
+        errorMessage(
+          "Google Generative AI API error (429): You exceeded your current quota, please check your plan and billing details. Your daily request limit has been exhausted. [code=RESOURCE_EXHAUSTED]",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps non-Gemini current-quota billing failures non-retryable", () => {
+    expect(
+      isRetryableAssistantError(
+        errorMessage(
+          "OpenAI API error (429): You exceeded your current quota, please check your plan and billing details.",
+        ),
+      ),
+    ).toBe(false);
+  });
+
   it.each([500, 502])("does not replay HTTP %s request-validation errors", (status) => {
     expect(
       isRetryableAssistantError({

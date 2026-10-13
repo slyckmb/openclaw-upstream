@@ -510,6 +510,7 @@ export async function prepareEmbeddedAttemptTransport(input: {
     streamFn,
     strategy: streamStrategy,
     wrapApiKey,
+    getBindingStatus,
   } = selectEmbeddedAgentStream({
     currentStreamFn: defaultSessionStreamFn,
     providerStreamFn: directProviderStreamFn,
@@ -518,6 +519,7 @@ export async function prepareEmbeddedAttemptTransport(input: {
     signal: input.abortSignal,
     model: attempt.model,
     resolvedApiKey: attempt.resolvedApiKey,
+    bindingAuthSource: attempt.bindingAuthSource,
     transportAuthAvailable: Boolean(transportApiKey?.trim()),
     authProfileId: attempt.runtimePlan?.auth.forwardedAuthProfileId,
     authStorage: attempt.authStorage,
@@ -649,5 +651,6 @@ export async function prepareEmbeddedAttemptTransport(input: {
     effectivePromptCacheRetention,
     providerTextTransforms,
     streamStrategy,
+    getBindingStatus,
   };
 }

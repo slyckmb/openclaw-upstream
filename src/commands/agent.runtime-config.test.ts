@@ -77,11 +77,21 @@ vi.mock("../secrets/target-registry.js", () => ({
   discoverConfigSecretTargetsByIds: (
     config: OpenClawConfig,
     targetIds: Iterable<string>,
-  ): Array<{ path: string }> => {
+  ): Array<{ path: string; pathSegments: string[] }> => {
     const ids = new Set(targetIds);
-    return ids.has("models.providers.*.apiKey") && config.models?.providers?.openai?.apiKey
-      ? [{ path: "models.providers.openai.apiKey" }]
-      : [];
+    if (!ids.has("models.providers.*.apiKey")) {
+      return [];
+    }
+    return Object.entries(config.models?.providers ?? {}).flatMap(([providerId, provider]) =>
+      provider?.apiKey
+        ? [
+            {
+              path: "models.providers." + providerId + ".apiKey",
+              pathSegments: ["models", "providers", providerId, "apiKey"],
+            },
+          ]
+        : [],
+    );
   },
 }));
 
@@ -270,6 +280,95 @@ describe("agentCommand runtime config", () => {
       expect(targetIds.has("channels.telegram.botToken")).toBe(false);
       expect(setRuntimeConfigSnapshotMock).toHaveBeenCalledWith(resolvedConfig, sourceConfig);
       expect(prepared).toBe(resolvedConfig);
+    });
+  });
+
+  it("scopes an exact fallback chain to only its model-provider SecretRefs", async () => {
+    await withTempHome(async (home) => {
+      const store = path.join(home, "sessions.json");
+      const secretRef = (id: string) => ({ source: "env", provider: "default", id });
+      const loadedConfig = {
+        ...mockConfig(home, store),
+        models: {
+          providers: {
+            cloudflare: {
+              apiKey: secretRef("CLOUDFLARE_API_KEY"),
+              baseUrl: "https://api.cloudflare.com/client/v4/accounts/test/ai/v1",
+              models: [],
+            },
+            "yolo-auto": {
+              apiKey: secretRef("YOLO_AUTO_API_KEY"),
+              baseUrl: "https://yolo.example/v1",
+              models: [],
+            },
+            openrouter: {
+              apiKey: secretRef("OPENROUTER_FREE_API_KEY"),
+              baseUrl: "https://openrouter.ai/api/v1",
+              models: [],
+            },
+          },
+        },
+      } as unknown as OpenClawConfig;
+      loadConfigMock.mockReturnValue(loadedConfig);
+      getActiveSecretsRuntimeConfigSnapshotMock.mockReturnValue({
+        config: loadedConfig,
+        sourceConfig: loadedConfig,
+        configRefsPrepared: false,
+      });
+      resolveCommandConfigWithSecretsMock.mockResolvedValueOnce({
+        resolvedConfig: loadedConfig,
+        effectiveConfig: loadedConfig,
+        diagnostics: [],
+      });
+
+      await resolveAgentRuntimeConfig(runtime, {
+        runtimeExactModelRefs: [
+          "cloudflare/@cf/zai-org/glm-4.7-flash@cloudflare-workers-ai-token",
+          "yolo-auto/qwen3.8-flash@yolozero:exec:YOLO_AUTO_API_KEY",
+        ],
+      });
+
+      expect(requireResolveCommandConfigParams().allowedPaths).toEqual(
+        new Set(["models.providers.cloudflare.apiKey", "models.providers.yolo-auto.apiKey"]),
+      );
+      expect(
+        requireResolveCommandConfigParams().allowedPaths?.has("models.providers.openrouter.apiKey"),
+      ).toBe(false);
+    });
+  });
+
+  it("keeps model-provider SecretRef resolution unscoped when an exact ref is not fully qualified", async () => {
+    await withTempHome(async (home) => {
+      const store = path.join(home, "sessions.json");
+      const loadedConfig = {
+        ...mockConfig(home, store),
+        models: {
+          providers: {
+            openrouter: {
+              apiKey: { source: "env", provider: "default", id: "OPENROUTER_FREE_API_KEY" },
+              baseUrl: "https://openrouter.ai/api/v1",
+              models: [],
+            },
+          },
+        },
+      } as unknown as OpenClawConfig;
+      loadConfigMock.mockReturnValue(loadedConfig);
+      getActiveSecretsRuntimeConfigSnapshotMock.mockReturnValue({
+        config: loadedConfig,
+        sourceConfig: loadedConfig,
+        configRefsPrepared: false,
+      });
+      resolveCommandConfigWithSecretsMock.mockResolvedValueOnce({
+        resolvedConfig: loadedConfig,
+        effectiveConfig: loadedConfig,
+        diagnostics: [],
+      });
+
+      await resolveAgentRuntimeConfig(runtime, {
+        runtimeExactModelRefs: ["worker-alias"],
+      });
+
+      expect(requireResolveCommandConfigParams().allowedPaths).toBeUndefined();
     });
   });
 

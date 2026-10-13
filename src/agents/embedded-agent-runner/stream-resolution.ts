@@ -10,6 +10,10 @@ import { getStreamLlmRuntime } from "../../llm/model-runtime-binding.js";
 import "../ai-transport-runtime-host.js";
 import { createAnthropicVertexStreamFnForModel } from "../anthropic-vertex-stream.js";
 import type { StreamFn } from "../runtime/index.js";
+import {
+  createEmbeddedBindingObserver,
+  type EmbeddedDispatchBindingSource,
+} from "./run/binding-status.js";
 import type { EmbeddedRunAttemptParams } from "./run/types.js";
 
 const embeddedAgentBaseStreamFnCache = new WeakMap<object, StreamFn | undefined>();
@@ -108,6 +112,7 @@ type EmbeddedAgentStreamParams = EmbeddedStreamRuntimeOwner & {
   signal?: AbortSignal;
   model: EmbeddedRunAttemptParams["model"];
   resolvedApiKey?: string;
+  bindingAuthSource?: EmbeddedDispatchBindingSource;
   transportAuthAvailable?: boolean;
   authProfileId?: string;
   authStorage?: { getApiKey(provider: string): Promise<string | undefined> };
@@ -117,9 +122,10 @@ type EmbeddedAgentStreamParams = EmbeddedStreamRuntimeOwner & {
 export function resolveEmbeddedAgentStream(params: EmbeddedAgentStreamParams): {
   streamFn: StreamFn;
   strategy: string;
+  getBindingStatus?: ReturnType<typeof createEmbeddedBindingObserver>["getBindingStatus"];
 } {
-  const { streamFn, strategy, wrapApiKey } = selectEmbeddedAgentStream(params);
-  return { streamFn: wrapApiKey(streamFn), strategy };
+  const { streamFn, strategy, wrapApiKey, getBindingStatus } = selectEmbeddedAgentStream(params);
+  return { streamFn: wrapApiKey(streamFn), strategy, getBindingStatus };
 }
 
 /**
@@ -132,6 +138,7 @@ export function selectEmbeddedAgentStream(params: EmbeddedAgentStreamParams): {
   strategy: string;
   /** Attaches the run credential when the selected transport sends it. */
   wrapApiKey: (streamFn: StreamFn) => StreamFn;
+  getBindingStatus?: ReturnType<typeof createEmbeddedBindingObserver>["getBindingStatus"];
 } {
   const llmRuntime = resolveEmbeddedStreamRuntime(params);
   const wrapOptions = {
@@ -208,15 +215,31 @@ export function selectEmbeddedAgentStream(params: EmbeddedAgentStreamParams): {
     // even without a resolved key; direct Anthropic keeps its existing replay path.
     (params.model.api === "anthropic-messages" && params.model.provider !== "anthropic")
   ) {
-    const boundaryAwareStreamFn = createBoundaryAwareStreamFnForModel(params.model);
+    let nativeTransport = false;
+    const boundaryAwareStreamFn = createBoundaryAwareStreamFnForModel(params.model, {
+      onNativeTransportSelected: () => {
+        nativeTransport = true;
+      },
+    });
     if (boundaryAwareStreamFn) {
+      const binding = createEmbeddedBindingObserver();
       return {
-        streamFn: wrapEmbeddedAgentStreamFn(boundaryAwareStreamFn, {
-          ...wrapOptions,
-          sessionId: params.sessionId,
-        }),
+        streamFn: wrapEmbeddedAgentStreamFn(
+          nativeTransport
+            ? binding.observe(boundaryAwareStreamFn, {
+                source: params.bindingAuthSource,
+                resolvedApiKey: params.resolvedApiKey,
+                model: params.model,
+              })
+            : boundaryAwareStreamFn,
+          {
+            ...wrapOptions,
+            sessionId: params.sessionId,
+          },
+        ),
         strategy: `boundary-aware:${params.model.api}`,
         wrapApiKey: wrapRunApiKey,
+        getBindingStatus: binding.getBindingStatus,
       };
     }
   }

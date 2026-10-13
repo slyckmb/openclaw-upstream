@@ -28,8 +28,12 @@ describe("Doctor config persistence after deferred migrations", () => {
   ])(
     "finishes retired inputs in the same Doctor without redundant writes (deferred: $deferred, include: $include)",
     async ({ deferred, include }) => {
+      // Keep the mocked wall clock near the native lease worker's real clock.
+      // A stale absolute fixture date can overflow Node's 32-bit timer delay
+      // when the lease renewal timer compares real and mocked timestamps.
+      const initialTime = Date.now();
       vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(new Date("2026-09-14T00:00:00Z"));
+      vi.setSystemTime(initialTime);
       await withOpenClawTestState(
         {
           label: "doctor-deferred-config-write",
@@ -140,7 +144,7 @@ describe("Doctor config persistence after deferred migrations", () => {
           }
           expect(ctx.cfg).toEqual(desired);
 
-          vi.setSystemTime(new Date("2026-09-14T00:00:01Z"));
+          vi.setSystemTime(initialTime + 1_000);
           await runWriteConfigHealth(ctx, { runPostWriteRepairs: false });
           if (deferred) {
             expect(ctx.configResult.confirmedConfigSource?.hash).not.toBe(firstReceipt?.hash);
@@ -166,7 +170,7 @@ describe("Doctor config persistence after deferred migrations", () => {
             expect(finalRaw).toBe(firstRaw);
           }
 
-          vi.setSystemTime(new Date("2026-09-14T00:00:02Z"));
+          vi.setSystemTime(initialTime + 2_000);
           await runWriteConfigHealth(ctx, { runPostWriteRepairs: false });
           expect(await fs.readFile(outputPath, "utf8")).toBe(finalRaw);
         },
