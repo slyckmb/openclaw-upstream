@@ -541,6 +541,10 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
   const includeOpenClawTools = includeCoreTools && toolConstructionPlan.includeOpenClawTools;
   const includeChannelTools = toolConstructionPlan.includeChannelTools;
   const includePluginTools = toolConstructionPlan.includePluginTools;
+  // Protected runs cannot invoke in-process plugin factories at tool binding:
+  // factories may write to the host before returned-tool filtering runs.
+  // This is one early-denial layer, not proof of durable admission or OS isolation.
+  const protectedSandboxToolBinding = sandbox?.required === true;
   const workspaceOnly =
     isMemoryFlushRun || (sessionCoreToolPolicy?.workspaceOnly ?? fsConfig.workspaceOnly === true);
   const fsPolicy = {
@@ -700,7 +704,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
         }
       : undefined;
   const pluginToolsOnly = filterToolsByClientCaps(
-    includeOpenClawTools || !includePluginTools
+    includeOpenClawTools || !includePluginTools || protectedSandboxToolBinding
       ? []
       : resolveOpenClawPluginToolsForOptions({
           options: {
@@ -860,7 +864,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             swarmCollector: options?.swarmCollector,
             swarmOutputSchema: options?.swarmOutputSchema,
             enableHeartbeatTool,
-            disablePluginTools: !includePluginTools,
+            disablePluginTools: !includePluginTools || protectedSandboxToolBinding,
             wrapBeforeToolCallHook: false,
             ...(cronSelfRemoveOnlyJobId ? { cronSelfRemoveOnlyJobId } : {}),
             requesterAgentIdOverride: agentId,

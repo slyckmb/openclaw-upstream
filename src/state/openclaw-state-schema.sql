@@ -2592,3 +2592,67 @@ CREATE TABLE IF NOT EXISTS secret_store_entries (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS secret_store_entries_live_idx
   ON secret_store_entries (scope_kind, scope_id, name) WHERE deleted_at_ms IS NULL;
+
+
+-- Protected execution cutover state is additive, initially absent until trusted first use.
+-- The Gateway admin writer alone may mutate this state; runtime callers only validate it.
+CREATE TABLE IF NOT EXISTS protected_execution_cutovers (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  generation INTEGER NOT NULL CHECK (generation >= 1),
+  required INTEGER NOT NULL CHECK (required = 1),
+  runtime_fingerprint TEXT NOT NULL CHECK (length(runtime_fingerprint) = 64),
+  administrator_ref TEXT NOT NULL CHECK (length(administrator_ref) > 0),
+  created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS protected_execution_runs (
+  run_id TEXT NOT NULL PRIMARY KEY,
+  instance_id TEXT NOT NULL UNIQUE,
+  agent_id TEXT NOT NULL CHECK (length(agent_id) > 0),
+  parent_run_id TEXT,
+  generation INTEGER NOT NULL CHECK (generation >= 1),
+  runtime_fingerprint TEXT NOT NULL CHECK (length(runtime_fingerprint) = 64),
+  required INTEGER NOT NULL CHECK (required = 1),
+  state TEXT NOT NULL CHECK (state IN ('active', 'retired')),
+  admitted_at_ms INTEGER NOT NULL CHECK (admitted_at_ms >= 0),
+  retired_at_ms INTEGER,
+  CHECK ((state = 'active' AND retired_at_ms IS NULL) OR
+         (state = 'retired' AND retired_at_ms IS NOT NULL))
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_protected_execution_runs_active_parent
+  ON protected_execution_runs(parent_run_id) WHERE state = 'active';
+
+-- Block accidental SQL weakening even if a new writer forgets the Kysely checks.
+-- These triggers do not replace an independent OS privilege boundary.
+CREATE TRIGGER IF NOT EXISTS protected_execution_cutovers_guard_update
+BEFORE UPDATE ON protected_execution_cutovers
+WHEN NEW.id != OLD.id OR NEW.generation <= OLD.generation OR NEW.required != 1 OR
+  NEW.administrator_ref = '' OR length(NEW.runtime_fingerprint) != 64
+BEGIN
+  SELECT RAISE(ABORT, 'protected cutover must advance generation');
+END;
+
+CREATE TRIGGER IF NOT EXISTS protected_execution_cutovers_guard_delete
+BEFORE DELETE ON protected_execution_cutovers
+BEGIN
+  SELECT RAISE(ABORT, 'protected cutover cannot be deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS protected_execution_runs_guard_update
+BEFORE UPDATE ON protected_execution_runs
+WHEN NEW.run_id != OLD.run_id OR NEW.instance_id != OLD.instance_id OR
+  NEW.agent_id != OLD.agent_id OR NEW.parent_run_id IS NOT OLD.parent_run_id OR
+  NEW.generation != OLD.generation OR NEW.runtime_fingerprint != OLD.runtime_fingerprint OR
+  NEW.required != 1 OR NEW.admitted_at_ms != OLD.admitted_at_ms OR
+  OLD.state != 'active' OR NEW.state != 'retired' OR NEW.retired_at_ms IS NULL
+BEGIN
+  SELECT RAISE(ABORT, 'protected run identity is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS protected_execution_runs_guard_delete
+BEFORE DELETE ON protected_execution_runs
+BEGIN
+  SELECT RAISE(ABORT, 'protected run cannot be deleted without a reviewed retirement migration');
+END;
+-- End protected execution additive schema.

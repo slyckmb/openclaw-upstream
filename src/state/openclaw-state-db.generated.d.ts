@@ -1151,6 +1151,28 @@ export interface Projects {
   updated_at_ms: number;
 }
 
+export interface ProtectedExecutionCutovers {
+  administrator_ref: string;
+  created_at_ms: number;
+  generation: number;
+  id: Generated<number>;
+  required: number;
+  runtime_fingerprint: string;
+}
+
+export interface ProtectedExecutionRuns {
+  admitted_at_ms: number;
+  agent_id: string;
+  generation: number;
+  instance_id: string;
+  parent_run_id: string | null;
+  required: number;
+  retired_at_ms: number | null;
+  run_id: string;
+  runtime_fingerprint: string;
+  state: string;
+}
+
 export interface SandboxRegistryEntries {
   backend_id: string | null;
   cdp_port: number | null;
@@ -1849,6 +1871,8 @@ export interface DB {
   plugin_blob_entries: PluginBlobEntries;
   plugin_state_entries: PluginStateEntries;
   projects: Projects;
+  protected_execution_cutovers: ProtectedExecutionCutovers;
+  protected_execution_runs: ProtectedExecutionRuns;
   sandbox_registry_entries: SandboxRegistryEntries;
   schema_meta: SchemaMeta;
   secret_store_entries: SecretStoreEntries;
