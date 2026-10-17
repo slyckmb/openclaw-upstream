@@ -40,6 +40,8 @@ export const FIRST_USE_STATE_INDEXES = [
 export const LAZY_ADDITIVE_STATE_TABLES = [
   ...FIRST_USE_STATE_TABLES,
   "agent_provenance",
+  "protected_execution_cutovers",
+  "protected_execution_runs",
   "cron_run_receipts",
   "cron_store_epochs",
   "config_revision_keys",
@@ -61,6 +63,7 @@ export const LAZY_ADDITIVE_STATE_TABLES = [
 ] as const;
 export const LAZY_ADDITIVE_STATE_INDEXES = [
   ...FIRST_USE_STATE_INDEXES,
+  "idx_protected_execution_runs_active_parent",
   "idx_cron_run_receipts_active_job",
   "idx_cron_run_receipts_job_history",
   "idx_github_publication_requests_pending",
