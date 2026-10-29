@@ -70,6 +70,11 @@ export function getOpenClawStateRuntimeSchema(options: {
     }
     schema = `${schema.slice(0, start)}${schema.slice(end + endMarker.length)}`;
   }
+  // A trigger on an omitted table cannot be created before that table exists;
+  // dropping only the table block fails every open of an older database.
+  schema = schema.replace(/CREATE TRIGGER IF NOT EXISTS[\s\S]*?\nEND;\n/g, (block) =>
+    omittedTables.some((tableName) => new RegExp(`\\bON ${tableName}\\b`).test(block)) ? "" : block,
+  );
   for (const indexName of omittedIndexes) {
     const plainStart = schema.indexOf(`CREATE INDEX IF NOT EXISTS ${indexName}`);
     const uniqueStart = schema.indexOf(`CREATE UNIQUE INDEX IF NOT EXISTS ${indexName}`);

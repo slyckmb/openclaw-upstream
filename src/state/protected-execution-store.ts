@@ -5,14 +5,16 @@
  * trusted Gateway administrator writer may commit rows. Before execution,
  * a qualified runtime must also prove its OS boundary and active run ownership.
  */
-import type { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "../infra/kysely-sync.js";
-import { ensureProtectedExecutionSchema } from "./openclaw-state-db-schema-additive.js";
-import { tableExists } from "./openclaw-state-db-schema-helpers.js";
+import {
+  ensureProtectedExecutionSchema,
+  getProtectedExecutionSchemaSql,
+} from "./openclaw-state-db-schema-additive.js";
 import type { DB as StateDatabase } from "./openclaw-state-db.generated.js";
 
 type ProtectedDb = Pick<StateDatabase, "protected_execution_cutovers" | "protected_execution_runs">;
@@ -55,23 +57,54 @@ function requireFingerprint(value: string): string {
   return value;
 }
 
-function assertCanonicalProtectedSchema(database: DatabaseSync): void {
-  for (const table of ["protected_execution_cutovers", "protected_execution_runs"]) {
-    if (!tableExists(database, table)) {
-      throw new Error("protected execution denied: durable " + table + " is missing");
-    }
+type ProtectedSchemaObject = Readonly<{ name: string; type: string; sql: string }>;
+let canonicalProtectedSchema: readonly ProtectedSchemaObject[] | undefined;
+
+/**
+ * Rebuild the trusted canonical definitions in memory once, so validation
+ * compares the actual SQLite schema text rather than trusting object names.
+ * A same-name no-op trigger or weakened CHECK/INDEX must not authorize runs.
+ */
+function expectedProtectedSchemaObjects(): readonly ProtectedSchemaObject[] {
+  if (canonicalProtectedSchema) {
+    return canonicalProtectedSchema;
   }
-  for (const trigger of [
-    "protected_execution_cutovers_guard_update",
-    "protected_execution_cutovers_guard_delete",
-    "protected_execution_runs_guard_update",
-    "protected_execution_runs_guard_delete",
-  ]) {
-    const row = database
-      .prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger' AND name = ?")
-      .get(trigger);
+  const reference = new DatabaseSync(":memory:");
+  try {
+    reference.exec(getProtectedExecutionSchemaSql());
+    const rows = reference
+      .prepare(
+        "SELECT name, type, sql FROM sqlite_schema WHERE name LIKE 'protected_execution_%' OR name = 'idx_protected_execution_runs_active_parent' ORDER BY name",
+      )
+      .all() as Array<{ name: string; type: string; sql: string | null }>;
+    if (rows.length !== 7 || rows.some((row) => typeof row.sql !== "string")) {
+      throw new Error("protected execution denied: canonical SQL schema is incomplete");
+    }
+    canonicalProtectedSchema = rows.map((row) => ({
+      name: row.name,
+      type: row.type,
+      sql: String(row.sql),
+    }));
+    return canonicalProtectedSchema;
+  } finally {
+    reference.close();
+  }
+}
+
+function assertCanonicalProtectedSchema(database: DatabaseSync): void {
+  const expected = expectedProtectedSchemaObjects();
+  const read = database.prepare("SELECT type, sql FROM sqlite_schema WHERE name = ?");
+  for (const object of expected) {
+    const row = read.get(object.name) as { type?: unknown; sql?: unknown } | undefined;
+    const typeLabel =
+      object.type === "trigger" ? "guard" : object.type === "table" ? "durable" : "index";
     if (!row) {
-      throw new Error("protected execution denied: guard " + trigger + " is missing");
+      throw new Error(`protected execution denied: ${typeLabel} ${object.name} is missing`);
+    }
+    if (row.type !== object.type || row.sql !== object.sql) {
+      throw new Error(
+        `protected execution denied: ${typeLabel} ${object.name} is weakened or changed`,
+      );
     }
   }
 }

@@ -58,7 +58,7 @@ afterEach(() => {
 describe("trusted protected-execution durable storage primitive", () => {
   it("denies absent state and does not create any schema during validation", () => {
     const db = openFixture();
-    expect(() => assertProtectedRunState(db, run)).toThrow(/durable.*missing/);
+    expect(() => assertProtectedRunState(db, run)).toThrow(/missing/);
     expect(db.prepare("SELECT count(*) AS n FROM sqlite_schema").get()).toEqual({ n: 0 });
   });
 
@@ -188,7 +188,42 @@ describe("trusted protected-execution durable storage primitive", () => {
     db.exec("DROP TRIGGER protected_execution_runs_guard_delete;");
     expect(() => assertProtectedRunState(db, run)).toThrow(/guard.*missing/);
     db.exec("DROP TABLE protected_execution_runs;");
-    expect(() => assertProtectedRunState(db, run)).toThrow(/durable.*missing/);
+    expect(() => assertProtectedRunState(db, run)).toThrow(/missing/);
+  });
+
+  it("rejects a replacement no-op guard with the same name", () => {
+    const db = openFixture();
+    transaction(db, () => {
+      advanceProtectedCutoverInTransaction(db, owner);
+      bindProtectedRunInTransaction(db, { ...run, nowMs: 105 });
+    });
+    db.exec("DROP TRIGGER protected_execution_runs_guard_update;");
+    db.exec(`
+      CREATE TRIGGER protected_execution_runs_guard_update
+      BEFORE UPDATE ON protected_execution_runs
+      BEGIN SELECT 1; END;
+    `);
+    expect(() => assertProtectedRunState(db, run)).toThrow(/weakened or changed/);
+    expect(() =>
+      transaction(db, () =>
+        bindProtectedRunInTransaction(db, {
+          ...run,
+          runId: "second-run",
+          instanceId: "second-instance",
+          nowMs: 115,
+        }),
+      ),
+    ).toThrow(/weakened or changed/);
+  });
+
+  it("rejects weaker schema when a required index disappears", () => {
+    const db = openFixture();
+    transaction(db, () => {
+      advanceProtectedCutoverInTransaction(db, owner);
+      bindProtectedRunInTransaction(db, { ...run, nowMs: 105 });
+    });
+    db.exec("DROP INDEX idx_protected_execution_runs_active_parent;");
+    expect(() => assertProtectedRunState(db, run)).toThrow(/index.*missing/);
   });
 
   it("preserves exact policy and run identity across a closed-and-reopened SQLite connection", () => {

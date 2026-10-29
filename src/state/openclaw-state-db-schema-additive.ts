@@ -600,7 +600,7 @@ export function ensureAdditiveStateColumns(db: DatabaseSync): void {
  * Gateway control-plane writer may invoke this; no agent admission is granted
  * merely by creating this schema.
  */
-export function ensureProtectedExecutionSchema(database: DatabaseSync): void {
+export function getProtectedExecutionSchemaSql(): string {
   const start = OPENCLAW_STATE_SCHEMA_SQL.indexOf(
     "-- Protected execution cutover state is additive, initially absent until trusted first use.",
   );
@@ -612,5 +612,10 @@ export function ensureProtectedExecutionSchema(database: DatabaseSync): void {
   if (end < start) {
     throw new Error("protected execution canonical schema end marker is missing");
   }
-  database.exec(OPENCLAW_STATE_SCHEMA_SQL.slice(start, end + endMarker.length)); // sqlite-allow-raw -- canonical additive DDL only.
+  return OPENCLAW_STATE_SCHEMA_SQL.slice(start, end + endMarker.length);
+}
+
+/** Installs the canonical additive definitions inside the trusted writer's transaction. */
+export function ensureProtectedExecutionSchema(database: DatabaseSync): void {
+  database.exec(getProtectedExecutionSchemaSql()); // sqlite-allow-raw -- canonical additive DDL only.
 }
