@@ -3,7 +3,7 @@
  * Ensures cron runs scope cron tool behavior to self-removal of the current
  * job only.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnyAgentTool } from "./tools/common.js";
 
 const mocks = vi.hoisted(() => {
@@ -19,9 +19,14 @@ const mocks = vi.hoisted(() => {
 
   return {
     createOpenClawToolsOptions: vi.fn(),
+    floorPresent: vi.fn(() => false),
     stubTool,
   };
 });
+
+vi.mock("./sandbox/protected-floor.js", () => ({
+  isProtectedFloorPresent: () => mocks.floorPresent(),
+}));
 
 vi.mock("./openclaw-tools.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./openclaw-tools.js")>();
@@ -152,5 +157,35 @@ describe("createOpenClawCodingTools sandbox filesystem ownership", () => {
         },
       }),
     ).toThrow("Sandbox filesystem bridge is unavailable.");
+  });
+});
+
+describe("createOpenClawCodingTools sessionless plugin factories (A1)", () => {
+  const plan = {
+    includeBaseCodingTools: false,
+    includeShellTools: false,
+    includeChannelTools: false,
+    includeOpenClawTools: true,
+    includePluginTools: true,
+  };
+
+  afterEach(() => mocks.floorPresent.mockReturnValue(false));
+
+  it("skips in-process plugin factories for sessionless binding on a protected host", () => {
+    mocks.floorPresent.mockReturnValue(true);
+    mocks.createOpenClawToolsOptions.mockClear();
+    createOpenClawCodingTools({ toolConstructionPlan: plan });
+    expect(mocks.createOpenClawToolsOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ disablePluginTools: true }),
+    );
+  });
+
+  it("keeps plugin factories for sessionless binding on an unprotected host", () => {
+    mocks.floorPresent.mockReturnValue(false);
+    mocks.createOpenClawToolsOptions.mockClear();
+    createOpenClawCodingTools({ toolConstructionPlan: plan });
+    expect(mocks.createOpenClawToolsOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ disablePluginTools: false }),
+    );
   });
 });

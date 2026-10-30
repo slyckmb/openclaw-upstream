@@ -594,3 +594,28 @@ export function ensureAdditiveStateColumns(db: DatabaseSync): void {
   );
   ensureOperatorApprovalResolutionRefs(db);
 }
+
+/**
+ * Same-version STRICT tables and monotonicity triggers. Only the trusted
+ * Gateway control-plane writer may invoke this; no agent admission is granted
+ * merely by creating this schema.
+ */
+export function getProtectedExecutionSchemaSql(): string {
+  const start = OPENCLAW_STATE_SCHEMA_SQL.indexOf(
+    "-- Protected execution cutover state is additive, initially absent until trusted first use.",
+  );
+  if (start < 0) {
+    throw new Error("protected execution canonical schema marker is missing");
+  }
+  const endMarker = "-- End protected execution additive schema.";
+  const end = OPENCLAW_STATE_SCHEMA_SQL.indexOf(endMarker, start);
+  if (end < start) {
+    throw new Error("protected execution canonical schema end marker is missing");
+  }
+  return OPENCLAW_STATE_SCHEMA_SQL.slice(start, end + endMarker.length);
+}
+
+/** Installs the canonical additive definitions inside the trusted writer's transaction. */
+export function ensureProtectedExecutionSchema(database: DatabaseSync): void {
+  database.exec(getProtectedExecutionSchemaSql()); // sqlite-allow-raw -- canonical additive DDL only.
+}

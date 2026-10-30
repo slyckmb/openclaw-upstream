@@ -3,6 +3,7 @@
  * Verifies plugin tools, tool policy, schema cleanup, sandbox fs tools, and
  * assembled tool allowlist behavior.
  */
+import { existsSync, writeFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -1176,6 +1177,71 @@ describe("createOpenClawCodingTools", () => {
       cursor: continuation?.cursor,
     });
     expect(extractToolText(next)).toBe(original.slice(continuation?.cursor));
+  });
+
+  it("blocks a protected plugin-only factory before its direct host filesystem write", () => {
+    const homeFixture = tempDirs.make("pr25-plugin-home-");
+    const markerPath = path.join(homeFixture, "factory-wrote");
+    const spy = vi
+      .spyOn(openClawPluginTools, "resolveOpenClawPluginToolsForOptions")
+      .mockImplementation(() => {
+        writeFileSync(markerPath, "unconfined plugin write");
+        return [];
+      });
+    const sandbox = createAgentToolsSandboxContext({ workspaceDir: homeFixture });
+    sandbox.required = true;
+    try {
+      createOpenClawCodingTools({
+        config: testConfig,
+        sandbox,
+        includeCoreTools: false,
+        toolConstructionPlan: {
+          includeBaseCodingTools: false,
+          includeShellTools: false,
+          includeChannelTools: false,
+          includeOpenClawTools: false,
+          includePluginTools: true,
+        },
+      });
+      expect(spy).not.toHaveBeenCalled();
+      expect(existsSync(markerPath)).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("denies protected in-process plugin factories before OpenClaw core tool assembly", () => {
+    const homeFixture = tempDirs.make("pr25-core-home-");
+    const markerPath = path.join(homeFixture, "factory-wrote");
+    const spy = vi
+      .spyOn(openClawPluginTools, "resolveOpenClawPluginToolsForOptions")
+      .mockImplementation(() => {
+        writeFileSync(markerPath, "unconfined plugin write");
+        return [];
+      });
+    const sandbox = createAgentToolsSandboxContext({ workspaceDir: homeFixture });
+    sandbox.required = true;
+    const mockCoreTools = vi.mocked(createOpenClawTools);
+    mockCoreTools.mockClear();
+    try {
+      createOpenClawCodingTools({
+        config: testConfig,
+        sandbox,
+        toolConstructionPlan: {
+          includeBaseCodingTools: false,
+          includeShellTools: false,
+          includeChannelTools: false,
+          includeOpenClawTools: true,
+          includePluginTools: true,
+        },
+      });
+      expect(mockCoreTools).toHaveBeenCalledTimes(1);
+      expect(latestCreateOpenClawToolsOptions().disablePluginTools).toBe(true);
+      expect(spy).not.toHaveBeenCalled();
+      expect(existsSync(markerPath)).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("passes plugin suppression into OpenClaw tool construction plans", () => {
