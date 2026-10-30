@@ -73,6 +73,7 @@ import { collectMcpPaginatedItems } from "./mcp-pagination.js";
 import { isMcpToolAllowed, normalizeMcpToolFilter } from "./mcp-tool-filter.js";
 import { normalizeMcpToolCatalog, type McpToolCatalogMetadata } from "./mcp-tool-metadata.js";
 import { resolveMcpTransport } from "./mcp-transport.js";
+import { isProtectedFloorPresent } from "./sandbox/protected-floor.js";
 import { resolveSandboxRuntimeStatus } from "./sandbox/runtime-status.js";
 
 type BundleMcpSession = {
@@ -292,6 +293,11 @@ export function createSessionMcpRuntime(params: {
     }).sandboxRequired
   ) {
     throw new Error("Protected execution denied: MCP server setup is not an attested capability");
+  }
+  // A1: on a host with an operator floor, sessionless MCP setup is refused because it
+  // cannot be attributed to a protected or unprotected session.
+  if (!params.sessionKey && isProtectedFloorPresent()) {
+    throw new Error("Protected execution denied: sessionless MCP setup on a protected host");
   }
   const { loaded, fingerprint: computedFingerprint } = loadSessionMcpConfig({
     workspaceDir: params.workspaceDir,

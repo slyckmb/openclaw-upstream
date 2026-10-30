@@ -74,6 +74,7 @@ import { resolveOpenClawPluginToolsForOptions } from "./openclaw-plugin-tools.js
 import { createOpenClawTools, filterToolsByClientCaps } from "./openclaw-tools.js";
 import type { PreparedModelRuntimeSnapshot } from "./prepared-model-runtime.js";
 import type { SandboxContext } from "./sandbox.js";
+import { isProtectedFloorPresent } from "./sandbox/protected-floor.js";
 import {
   resolveScheduledToolCallerContext,
   type ScheduledToolPolicyContext,
@@ -544,7 +545,9 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
   // Protected runs cannot invoke in-process plugin factories at tool binding:
   // factories may write to the host before returned-tool filtering runs.
   // This is one early-denial layer, not proof of durable admission or OS isolation.
-  const protectedSandboxToolBinding = sandbox?.required === true;
+  // A1: sessionless binding on a protected host skips in-process plugin factories too.
+  const protectedSandboxToolBinding =
+    sandbox?.required === true || (!options?.sessionKey && isProtectedFloorPresent());
   const workspaceOnly =
     isMemoryFlushRun || (sessionCoreToolPolicy?.workspaceOnly ?? fsConfig.workspaceOnly === true);
   const fsPolicy = {

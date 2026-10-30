@@ -4,9 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 
 const runtimeStatus = vi.hoisted(() => vi.fn());
+const floorPresent = vi.hoisted(() => vi.fn<() => boolean>(() => false));
 
 vi.mock("./sandbox/runtime-status.js", () => ({
   resolveSandboxRuntimeStatus: runtimeStatus,
+}));
+
+vi.mock("./sandbox/protected-floor.js", () => ({
+  isProtectedFloorPresent: floorPresent,
 }));
 
 import { createSessionMcpRuntime } from "./agent-bundle-mcp-runtime.js";
@@ -14,7 +19,23 @@ import { createSessionMcpRuntime } from "./agent-bundle-mcp-runtime.js";
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 describe("protected session MCP registration", () => {
-  afterEach(() => runtimeStatus.mockReset());
+  afterEach(() => {
+    runtimeStatus.mockReset();
+    floorPresent.mockReturnValue(false);
+  });
+
+  it("refuses sessionless MCP setup on a host with an operator floor before any data directory", () => {
+    floorPresent.mockReturnValue(true);
+    const workspaceDir = path.join(tempDirs.make("pr25-mcp-floor-"), "would-be-plugin-data");
+    expect(() =>
+      createSessionMcpRuntime({
+        sessionId: "sessionless-on-protected-host",
+        workspaceDir,
+        cfg: { mcp: { servers: {} } },
+      }),
+    ).toThrow(/sessionless MCP setup on a protected host/);
+    expect(existsSync(workspaceDir)).toBe(false);
+  });
 
   it("rejects protected agent MCP initialization before any data directory or transport setup", () => {
     const fakeHome = tempDirs.make("pr25-mcp-home-");
