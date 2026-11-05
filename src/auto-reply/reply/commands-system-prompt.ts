@@ -216,6 +216,17 @@ export async function resolveCommandsSystemPromptBundle(
         agentId: sessionAgentId,
         workspaceDir,
         sessionKey: toolPolicySessionKey,
+        ...(sandboxRuntime.sandboxRequired
+          ? {
+              toolConstructionPlan: {
+                includeBaseCodingTools: true,
+                includeShellTools: true,
+                includeChannelTools: true,
+                includeOpenClawTools: true,
+                includePluginTools: false,
+              },
+            }
+          : {}),
         allowGatewaySubagentBinding: true,
         messageProvider: params.command.channel,
         groupId: targetSessionEntry?.groupId ?? undefined,

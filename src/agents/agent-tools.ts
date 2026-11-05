@@ -547,7 +547,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
   // This is one early-denial layer, not proof of durable admission or OS isolation.
   // A1: sessionless binding on a protected host skips in-process plugin factories too.
   const protectedSandboxToolBinding =
-    sandbox?.required === true || (!options?.sessionKey && isProtectedFloorPresent());
+    sandbox?.required === true || (!options?.sessionKey?.trim() && isProtectedFloorPresent());
   const workspaceOnly =
     isMemoryFlushRun || (sessionCoreToolPolicy?.workspaceOnly ?? fsConfig.workspaceOnly === true);
   const fsPolicy = {

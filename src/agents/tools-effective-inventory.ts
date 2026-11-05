@@ -22,6 +22,7 @@ import { resolveModelAsync } from "./embedded-agent-runner/model.js";
 import { resolveBundledStaticCatalogModel } from "./embedded-agent-runner/model.static-catalog.js";
 import { normalizeStaticProviderModelId } from "./model-ref-shared.js";
 import { acquireReadOnlyPreparedModelRuntime } from "./prepared-model-runtime.js";
+import { resolveSandboxRuntimeStatus } from "./sandbox/runtime-status.js";
 import { normalizeToolPolicyName } from "./tool-policy.js";
 import { buildRuntimeCompatibleToolInventory } from "./tools-effective-inventory-build.js";
 import { buildEffectiveToolInventoryGroups } from "./tools-effective-inventory-groups.js";
@@ -332,12 +333,28 @@ export function resolveEffectiveToolInventory(
     modelId: params.modelId,
   });
 
+  const sandboxRuntime = resolveSandboxRuntimeStatus({
+    cfg: params.cfg,
+    agentId,
+    sessionKey: params.sessionKey,
+  });
   const effectiveTools = createOpenClawCodingTools({
     agentId,
     sessionKey: params.sessionKey,
     workspaceDir,
     agentDir,
     config: params.cfg,
+    ...(sandboxRuntime.sandboxRequired
+      ? {
+          toolConstructionPlan: {
+            includeBaseCodingTools: true,
+            includeShellTools: true,
+            includeChannelTools: true,
+            includeOpenClawTools: true,
+            includePluginTools: false,
+          },
+        }
+      : {}),
     modelProvider: params.modelProvider,
     modelId: params.modelId,
     modelApi: runtimeModelContext.modelApi,

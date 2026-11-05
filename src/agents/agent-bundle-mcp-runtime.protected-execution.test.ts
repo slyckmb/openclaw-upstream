@@ -37,6 +37,22 @@ describe("protected session MCP registration", () => {
     expect(existsSync(workspaceDir)).toBe(false);
   });
 
+  it("treats whitespace-only MCP session keys as sessionless before creating data", () => {
+    floorPresent.mockReturnValue(true);
+    runtimeStatus.mockReturnValue({ sandboxRequired: false });
+    const workspaceDir = path.join(tempDirs.make("pr25-mcp-whitespace-"), "would-be-plugin-data");
+    expect(() =>
+      createSessionMcpRuntime({
+        sessionId: "whitespace-session-on-protected-host",
+        sessionKey: " \t ",
+        workspaceDir,
+        cfg: { mcp: { servers: {} } },
+      }),
+    ).toThrow(/sessionless MCP setup on a protected host/);
+    expect(runtimeStatus).not.toHaveBeenCalled();
+    expect(existsSync(workspaceDir)).toBe(false);
+  });
+
   it("rejects protected agent MCP initialization before any data directory or transport setup", () => {
     const fakeHome = tempDirs.make("pr25-mcp-home-");
     const workspaceDir = path.join(fakeHome, "would-be-plugin-data");

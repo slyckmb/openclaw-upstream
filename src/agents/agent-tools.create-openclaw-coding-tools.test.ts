@@ -1263,6 +1263,35 @@ describe("createOpenClawCodingTools", () => {
     expect(latestCreateOpenClawToolsOptions().disablePluginTools).toBe(true);
   });
 
+  it("does not invoke plugin factories for protected diagnostic tool plans without sandbox context", () => {
+    const homeFixture = tempDirs.make("pr25-protected-diagnostic-home-");
+    const markerPath = path.join(homeFixture, "factory-wrote");
+    const spy = vi
+      .spyOn(openClawPluginTools, "resolveOpenClawPluginToolsForOptions")
+      .mockImplementation(() => {
+        writeFileSync(markerPath, "unconfined diagnostic plugin write");
+        return [];
+      });
+    try {
+      createOpenClawCodingTools({
+        config: testConfig,
+        sessionKey: "agent:main:telegram:direct:protected-session",
+        includeCoreTools: false,
+        toolConstructionPlan: {
+          includeBaseCodingTools: false,
+          includeShellTools: false,
+          includeChannelTools: false,
+          includeOpenClawTools: false,
+          includePluginTools: false,
+        },
+      });
+      expect(spy).not.toHaveBeenCalled();
+      expect(existsSync(markerPath)).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("forwards trusted conversation recall to OpenClaw tool construction", () => {
     const createOpenClawToolsMock = vi.mocked(createOpenClawTools);
     createOpenClawToolsMock.mockClear();

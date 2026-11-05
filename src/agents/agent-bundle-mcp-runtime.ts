@@ -281,22 +281,23 @@ export function createSessionMcpRuntime(params: {
   configFingerprint?: string;
   toolOverrides?: Pick<SessionToolOverrides, "mcpServers" | "mcpToolsDeny">;
 }): SessionMcpRuntime {
+  const sessionKey = params.sessionKey?.trim() || undefined;
   // MCP server preparation may create PLUGIN_DATA directories before process
   // spawn. Protected sessions have no phase-one MCP capability: reject before
   // plugin catalog loading, transport construction, or any prepareDataDir mkdir.
   // Sessionless jobs still require the separate durable admission floor.
   if (
-    params.sessionKey &&
+    sessionKey &&
     resolveSandboxRuntimeStatus({
       cfg: params.cfg,
-      sessionKey: params.sessionKey,
+      sessionKey,
     }).sandboxRequired
   ) {
     throw new Error("Protected execution denied: MCP server setup is not an attested capability");
   }
   // A1: on a host with an operator floor, sessionless MCP setup is refused because it
   // cannot be attributed to a protected or unprotected session.
-  if (!params.sessionKey && isProtectedFloorPresent()) {
+  if (!sessionKey && isProtectedFloorPresent()) {
     throw new Error("Protected execution denied: sessionless MCP setup on a protected host");
   }
   const { loaded, fingerprint: computedFingerprint } = loadSessionMcpConfig({
@@ -993,7 +994,7 @@ export function createSessionMcpRuntime(params: {
 
   const runtime: SessionMcpRuntime = {
     sessionId: params.sessionId,
-    sessionKey: params.sessionKey,
+    sessionKey,
     workspaceDir: params.workspaceDir,
     agentDir: params.agentDir,
     configFingerprint,

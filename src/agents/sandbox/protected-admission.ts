@@ -12,8 +12,9 @@ export function assertHostProcessAdmitted(
   sessionKey: string | undefined,
   surface: string,
 ): void {
-  if (sessionKey) {
-    const runtime = resolveSandboxRuntimeStatus({ cfg, sessionKey });
+  const normalizedSessionKey = sessionKey?.trim();
+  if (normalizedSessionKey) {
+    const runtime = resolveSandboxRuntimeStatus({ cfg, sessionKey: normalizedSessionKey });
     if (runtime.sandboxRequired) {
       throw new Error(`Protected execution denied: ${surface} is not an attested capability`);
     }

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runCliAgent } from "./cli-runner.js";
+import { assertHostProcessAdmitted } from "./sandbox/protected-admission.js";
 
 const protectedRuntime = vi.hoisted(() => vi.fn(() => ({ sandboxRequired: false })));
 const floorPresent = vi.hoisted(() => vi.fn(() => false));
@@ -53,6 +54,23 @@ describe("CLI backend process admission (A1 and gap 3)", () => {
       "Protected execution denied: sessionless CLI backend process on a protected host",
     );
     expect(prepareCliRunContext).not.toHaveBeenCalled();
+  });
+
+  it("treats whitespace-only session keys as sessionless at the CLI admission gate", async () => {
+    floorPresent.mockReturnValue(true);
+    await expect(runCliAgent(cliParams({ sessionKey: " \t " }))).rejects.toThrow(
+      "Protected execution denied: sessionless CLI backend process on a protected host",
+    );
+    expect(protectedRuntime).not.toHaveBeenCalled();
+    expect(prepareCliRunContext).not.toHaveBeenCalled();
+  });
+
+  it("treats whitespace-only keys as sessionless in the exported admission helper", () => {
+    floorPresent.mockReturnValue(true);
+    expect(() => assertHostProcessAdmitted(undefined, " \t ", "test host process")).toThrow(
+      "Protected execution denied: sessionless test host process on a protected host",
+    );
+    expect(protectedRuntime).not.toHaveBeenCalled();
   });
 
   it("admits an unprotected session and reaches preparation", async () => {

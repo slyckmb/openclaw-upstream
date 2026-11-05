@@ -191,6 +191,30 @@ describe("trusted protected-execution durable storage primitive", () => {
     expect(() => assertProtectedRunState(db, run)).toThrow(/missing/);
   });
 
+  it("refuses cutover retry when guard loss allowed protected history to be deleted", () => {
+    const db = openFixture();
+    transaction(db, () => {
+      advanceProtectedCutoverInTransaction(db, owner);
+      bindProtectedRunInTransaction(db, { ...run, nowMs: 105 });
+    });
+    db.exec("DROP TRIGGER protected_execution_runs_guard_delete;");
+    db.exec("DELETE FROM protected_execution_runs WHERE run_id = 'run-1';");
+
+    expect(() => transaction(db, () => advanceProtectedCutoverInTransaction(db, owner))).toThrow(
+      /guard.*missing/,
+    );
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_schema WHERE type = 'trigger' AND name = 'protected_execution_runs_guard_delete'",
+        )
+        .get(),
+    ).toBeUndefined();
+    expect(db.prepare("SELECT count(*) AS n FROM protected_execution_runs").get()).toEqual({
+      n: 0,
+    });
+  });
+
   it("rejects a replacement no-op guard with the same name", () => {
     const db = openFixture();
     transaction(db, () => {

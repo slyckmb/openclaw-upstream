@@ -180,6 +180,15 @@ describe("createOpenClawCodingTools sessionless plugin factories (A1)", () => {
     );
   });
 
+  it("skips in-process plugin factories for whitespace-only keys on a protected host", () => {
+    mocks.floorPresent.mockReturnValue(true);
+    mocks.createOpenClawToolsOptions.mockClear();
+    createOpenClawCodingTools({ sessionKey: " \t ", toolConstructionPlan: plan });
+    expect(mocks.createOpenClawToolsOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ disablePluginTools: true }),
+    );
+  });
+
   it("keeps plugin factories for sessionless binding on an unprotected host", () => {
     mocks.floorPresent.mockReturnValue(false);
     mocks.createOpenClawToolsOptions.mockClear();

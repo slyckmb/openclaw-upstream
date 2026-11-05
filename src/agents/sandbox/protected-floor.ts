@@ -15,6 +15,7 @@ export type ProtectedFloorState =
   | { status: "invalid"; reason: string };
 
 function isMissing(err: unknown): boolean {
+  // SAFETY: Node filesystem failures carry their errno code on this error object.
   return (err as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
 }
 
@@ -65,6 +66,7 @@ export function readProtectedFloor(dir: string = PROTECTED_FLOOR_DIR): Protected
   } catch {
     return invalid("floor record is not valid JSON");
   }
+  // SAFETY: JSON.parse returns data-only input; activation still requires exact fixed markers.
   const fields = record as { schema?: unknown; floor?: unknown } | null;
   if (fields?.schema !== PROTECTED_FLOOR_SCHEMA || fields.floor !== PROTECTED_FLOOR_MARKER) {
     return invalid("floor record has an unexpected schema or marker");

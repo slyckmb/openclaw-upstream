@@ -149,6 +149,10 @@ describe("resolveCommandsSystemPromptBundle", () => {
     createOpenClawCodingToolsMock.mockClear();
     createOpenClawCodingToolsMock.mockReturnValue([]);
     vi.mocked(ensureSandboxWorkspaceForSession).mockResolvedValue(null);
+    vi.mocked(resolveSandboxRuntimeStatus).mockReturnValue({
+      sandboxed: false,
+      mode: "off",
+    } as ReturnType<typeof resolveSandboxRuntimeStatus>);
     vi.mocked(resolveReusableWorkspaceSkillSnapshot).mockReturnValue({
       snapshot: { prompt: "", skills: [], resolvedSkills: [] },
       shouldRefresh: false,
@@ -183,6 +187,31 @@ describe("resolveCommandsSystemPromptBundle", () => {
     expect(vi.mocked(resolveSandboxRuntimeStatus)).toHaveBeenCalledWith({
       cfg: params.cfg,
       sessionKey: "agent:main:telegram:direct:target-session",
+    });
+  });
+
+  it("does not assemble plugin factories for persisted protected-session diagnostics", async () => {
+    const params = makeParams();
+    params.sessionKey = "agent:main:telegram:direct:protected-session";
+    vi.mocked(resolveSandboxRuntimeStatus).mockReturnValue({
+      sandboxed: true,
+      sandboxRequired: true,
+      workspaceAccess: "ro",
+      mode: "all",
+    } as ReturnType<typeof resolveSandboxRuntimeStatus>);
+
+    await resolveCommandsSystemPromptBundle(params);
+
+    const toolParams = requireFirstArg(
+      vi.mocked(createOpenClawCodingTools),
+      "createOpenClawCodingTools",
+    );
+    expect(toolParams.toolConstructionPlan).toEqual({
+      includeBaseCodingTools: true,
+      includeShellTools: true,
+      includeChannelTools: true,
+      includeOpenClawTools: true,
+      includePluginTools: false,
     });
   });
 

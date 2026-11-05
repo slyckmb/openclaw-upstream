@@ -76,6 +76,7 @@ function expectedProtectedSchemaObjects(): readonly ProtectedSchemaObject[] {
       .prepare(
         "SELECT name, type, sql FROM sqlite_schema WHERE name LIKE 'protected_execution_%' OR name = 'idx_protected_execution_runs_active_parent' ORDER BY name",
       )
+      // SAFETY: SQLite returns rows for the selected columns; row count and SQL types are checked below.
       .all() as Array<{ name: string; type: string; sql: string | null }>;
     if (rows.length !== 7 || rows.some((row) => typeof row.sql !== "string")) {
       throw new Error("protected execution denied: canonical SQL schema is incomplete");
@@ -95,6 +96,7 @@ function assertCanonicalProtectedSchema(database: DatabaseSync): void {
   const expected = expectedProtectedSchemaObjects();
   const read = database.prepare("SELECT type, sql FROM sqlite_schema WHERE name = ?");
   for (const object of expected) {
+    // SAFETY: SQLite returns the selected columns; the row is required and both values are compared below.
     const row = read.get(object.name) as { type?: unknown; sql?: unknown } | undefined;
     const typeLabel =
       object.type === "trigger" ? "guard" : object.type === "table" ? "durable" : "index";
@@ -130,6 +132,16 @@ export function advanceProtectedCutoverInTransaction(
   const fingerprint = requireFingerprint(input.runtimeFingerprint);
   const administratorRef = requireIdentifier(input.administratorRef, "administrator reference");
   const nowMs = requireTimestamp(input.nowMs);
+  const hasExistingProtectedSchema = database
+    .prepare(
+      "SELECT 1 FROM sqlite_schema WHERE name LIKE 'protected_execution_%' OR name = 'idx_protected_execution_runs_active_parent' LIMIT 1",
+    )
+    .get();
+  // First use may install this lazy schema. Once any part exists, validate it
+  // before CREATE IF NOT EXISTS can conceal a removed guard or table.
+  if (hasExistingProtectedSchema) {
+    assertCanonicalProtectedSchema(database);
+  }
   ensureProtectedExecutionSchema(database);
   assertCanonicalProtectedSchema(database);
   const db = getNodeSqliteKysely<ProtectedDb>(database);
