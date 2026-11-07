@@ -4,12 +4,12 @@ import path from "node:path";
 // Operator-owned trust floor for protected execution (M0 decision B1). The path is
 // an explicit operator contract, so it is a constant rather than a config knob:
 // a config or environment override would let the protected floor be redirected.
-export const PROTECTED_FLOOR_DIR = "/dump/openclaw-protected";
+const PROTECTED_FLOOR_DIR = "/dump/openclaw-protected";
 const PROTECTED_FLOOR_FILE = "floor.json";
 const PROTECTED_FLOOR_SCHEMA = "openclaw-protected-floor/v1";
 const PROTECTED_FLOOR_MARKER = "operator-only";
 
-export type ProtectedFloorState =
+type ProtectedFloorState =
   | { status: "absent" }
   | { status: "active" }
   | { status: "invalid"; reason: string };
@@ -28,7 +28,7 @@ function invalid(reason: string): ProtectedFloorState {
  * this host. Present but unverifiable (wrong owner, group/other-writable, missing
  * or malformed record) is invalid, and protected work must not start.
  */
-export function readProtectedFloor(dir: string = PROTECTED_FLOOR_DIR): ProtectedFloorState {
+function readProtectedFloor(dir: string = PROTECTED_FLOOR_DIR): ProtectedFloorState {
   const uid = process.getuid?.();
   if (uid === undefined) {
     return invalid("owner check unavailable on this platform");

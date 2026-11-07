@@ -2,11 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  assertProtectedFloorActive,
-  isProtectedFloorPresent,
-  readProtectedFloor,
-} from "./protected-floor.js";
+import { assertProtectedFloorActive, isProtectedFloorPresent } from "./protected-floor.js";
 
 const VALID_RECORD = JSON.stringify({
   schema: "openclaw-protected-floor/v1",
@@ -37,7 +33,6 @@ describe("protected floor (B1)", () => {
   }
 
   it("reports absent and denies protected provisioning when no floor directory exists", () => {
-    expect(readProtectedFloor(floorDir)).toEqual({ status: "absent" });
     expect(isProtectedFloorPresent(floorDir)).toBe(false);
     expect(() => assertProtectedFloorActive(floorDir)).toThrow(
       /Protected execution denied: no operator floor is configured/,
@@ -46,56 +41,43 @@ describe("protected floor (B1)", () => {
 
   it("accepts a service-owned 0700 directory with a valid 0600 record", () => {
     writeFloor(VALID_RECORD);
-    expect(readProtectedFloor(floorDir)).toEqual({ status: "active" });
     expect(isProtectedFloorPresent(floorDir)).toBe(true);
     expect(() => assertProtectedFloorActive(floorDir)).not.toThrow();
   });
 
   it("fails closed on a group- or other-accessible directory", () => {
     writeFloor(VALID_RECORD, 0o755);
-    expect(readProtectedFloor(floorDir)).toMatchObject({
-      status: "invalid",
-      reason: "floor directory mode must be 0700",
-    });
+    expect(isProtectedFloorPresent(floorDir)).toBe(true);
     expect(() => assertProtectedFloorActive(floorDir)).toThrow(/mode must be 0700/);
   });
 
   it("fails closed when the record is group-writable", () => {
     writeFloor(VALID_RECORD, 0o700, 0o664);
-    expect(readProtectedFloor(floorDir)).toMatchObject({ status: "invalid" });
+    expect(isProtectedFloorPresent(floorDir)).toBe(true);
+    expect(() => assertProtectedFloorActive(floorDir)).toThrow(/must be a regular file/);
   });
 
   it("fails closed when the record is missing", () => {
     writeFloor(null);
-    expect(readProtectedFloor(floorDir)).toMatchObject({
-      status: "invalid",
-      reason: "floor record is missing",
-    });
+    expect(isProtectedFloorPresent(floorDir)).toBe(true);
+    expect(() => assertProtectedFloorActive(floorDir)).toThrow(/floor record is missing/);
   });
 
   it("fails closed on malformed JSON or a wrong schema or marker", () => {
     writeFloor("{not json");
-    expect(readProtectedFloor(floorDir)).toMatchObject({
-      status: "invalid",
-      reason: "floor record is not valid JSON",
-    });
+    expect(() => assertProtectedFloorActive(floorDir)).toThrow(/record is not valid JSON/);
     fs.writeFileSync(
       path.join(floorDir, "floor.json"),
       JSON.stringify({ schema: "openclaw-protected-floor/v1", floor: "agent-writable" }),
     );
-    expect(readProtectedFloor(floorDir)).toMatchObject({
-      status: "invalid",
-      reason: "floor record has an unexpected schema or marker",
-    });
+    expect(() => assertProtectedFloorActive(floorDir)).toThrow(/unexpected schema or marker/);
   });
 
   it("does not follow a symlinked floor directory", () => {
     writeFloor(VALID_RECORD);
     const link = path.join(root, "linked-floor");
     fs.symlinkSync(floorDir, link);
-    expect(readProtectedFloor(link)).toMatchObject({
-      status: "invalid",
-      reason: "floor path is not a real directory",
-    });
+    expect(isProtectedFloorPresent(link)).toBe(true);
+    expect(() => assertProtectedFloorActive(link)).toThrow(/not a real directory/);
   });
 });

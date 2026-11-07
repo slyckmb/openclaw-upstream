@@ -5,19 +5,25 @@
  * trusted Gateway administrator writer may commit rows. Before execution,
  * a qualified runtime must also prove its OS boundary and active run ownership.
  */
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "../infra/kysely-sync.js";
+import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
 import {
   ensureProtectedExecutionSchema,
   getProtectedExecutionSchemaSql,
 } from "./openclaw-state-db-schema-additive.js";
 import type { DB as StateDatabase } from "./openclaw-state-db.generated.js";
 
-type ProtectedDb = Pick<StateDatabase, "protected_execution_cutovers" | "protected_execution_runs">;
+type ProtectedDb = Pick<
+  StateDatabase,
+  "protected_execution_cutovers" | "protected_execution_runs"
+> & {
+  sqlite_schema: { name: string; type: string; sql: string | null };
+};
 
 export type ProtectedCutoverIdentity = Readonly<{
   generation: number;
@@ -69,15 +75,23 @@ function expectedProtectedSchemaObjects(): readonly ProtectedSchemaObject[] {
   if (canonicalProtectedSchema) {
     return canonicalProtectedSchema;
   }
-  const reference = new DatabaseSync(":memory:");
+  const reference = openNodeSqliteDatabase(":memory:");
   try {
     reference.exec(getProtectedExecutionSchemaSql());
-    const rows = reference
-      .prepare(
-        "SELECT name, type, sql FROM sqlite_schema WHERE name LIKE 'protected_execution_%' OR name = 'idx_protected_execution_runs_active_parent' ORDER BY name",
-      )
-      // SAFETY: SQLite returns rows for the selected columns; row count and SQL types are checked below.
-      .all() as Array<{ name: string; type: string; sql: string | null }>;
+    const db = getNodeSqliteKysely<ProtectedDb>(reference);
+    const rows = executeSqliteQuerySync(
+      reference,
+      db
+        .selectFrom("sqlite_schema")
+        .select(["name", "type", "sql"])
+        .where((eb) =>
+          eb.or([
+            eb("name", "like", "protected_execution_%"),
+            eb("name", "=", "idx_protected_execution_runs_active_parent"),
+          ]),
+        )
+        .orderBy("name"),
+    ).rows;
     if (rows.length !== 7 || rows.some((row) => typeof row.sql !== "string")) {
       throw new Error("protected execution denied: canonical SQL schema is incomplete");
     }
@@ -94,10 +108,12 @@ function expectedProtectedSchemaObjects(): readonly ProtectedSchemaObject[] {
 
 function assertCanonicalProtectedSchema(database: DatabaseSync): void {
   const expected = expectedProtectedSchemaObjects();
-  const read = database.prepare("SELECT type, sql FROM sqlite_schema WHERE name = ?");
+  const db = getNodeSqliteKysely<ProtectedDb>(database);
   for (const object of expected) {
-    // SAFETY: SQLite returns the selected columns; the row is required and both values are compared below.
-    const row = read.get(object.name) as { type?: unknown; sql?: unknown } | undefined;
+    const row = executeSqliteQueryTakeFirstSync(
+      database,
+      db.selectFrom("sqlite_schema").select(["type", "sql"]).where("name", "=", object.name),
+    );
     const typeLabel =
       object.type === "trigger" ? "guard" : object.type === "table" ? "durable" : "index";
     if (!row) {
@@ -132,11 +148,20 @@ export function advanceProtectedCutoverInTransaction(
   const fingerprint = requireFingerprint(input.runtimeFingerprint);
   const administratorRef = requireIdentifier(input.administratorRef, "administrator reference");
   const nowMs = requireTimestamp(input.nowMs);
-  const hasExistingProtectedSchema = database
-    .prepare(
-      "SELECT 1 FROM sqlite_schema WHERE name LIKE 'protected_execution_%' OR name = 'idx_protected_execution_runs_active_parent' LIMIT 1",
-    )
-    .get();
+  const db = getNodeSqliteKysely<ProtectedDb>(database);
+  const hasExistingProtectedSchema = executeSqliteQueryTakeFirstSync(
+    database,
+    db
+      .selectFrom("sqlite_schema")
+      .select("name")
+      .where((eb) =>
+        eb.or([
+          eb("name", "like", "protected_execution_%"),
+          eb("name", "=", "idx_protected_execution_runs_active_parent"),
+        ]),
+      )
+      .limit(1),
+  );
   // First use may install this lazy schema. Once any part exists, validate it
   // before CREATE IF NOT EXISTS can conceal a removed guard or table.
   if (hasExistingProtectedSchema) {
@@ -144,7 +169,6 @@ export function advanceProtectedCutoverInTransaction(
   }
   ensureProtectedExecutionSchema(database);
   assertCanonicalProtectedSchema(database);
-  const db = getNodeSqliteKysely<ProtectedDb>(database);
   const current = readCutover(database);
   if (current) {
     if (
