@@ -82,6 +82,7 @@ import {
   runAgentHarnessLlmInputHook,
   runAgentHarnessLlmOutputHook,
 } from "./harness/lifecycle-hook-helpers.js";
+import { assertHostProcessAdmitted } from "./sandbox/protected-admission.js";
 
 const log = createSubsystemLogger("agents/cli-runner");
 const cliRunnerDeps = cliRunSettlementDeps;
@@ -158,6 +159,9 @@ async function runCliAgentInternal(
   params: RunCliAgentParams,
   diagnosticLifecycle?: ClaudeCliRunDiagnosticLifecycle,
 ): Promise<EmbeddedAgentRunResult> {
+  // Runs before agent hooks and process preparation: a protected or sessionless
+  // CLI run must not reach plugin code or spawn a host process.
+  assertHostProcessAdmitted(params.config, params.sessionKey, "CLI backend process");
   assertAgentRunLifecycleGenerationCurrent(params.lifecycleGeneration!);
   // The hook gate must fire before prepareCliRunContext — that call allocates
   // backend resources released only by runPreparedCliAgent's try…finally.

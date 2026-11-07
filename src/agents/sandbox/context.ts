@@ -23,6 +23,7 @@ import { ensureSandboxBrowser } from "./browser.js";
 import { resolveSandboxConfigForAgent } from "./config.js";
 import { resolveSandboxDockerUser } from "./docker-user.js";
 import { createSandboxFsBridge } from "./fs-bridge.js";
+import { assertProtectedFloorActive } from "./protected-floor.js";
 import { toSandboxProvisioningError } from "./provisioning-error.js";
 import { readRegisteredSandboxRuntimeIds, updateRegistry } from "./registry.js";
 import { resolveSandboxRuntimeStatus } from "./runtime-status.js";
@@ -179,6 +180,8 @@ function resolveSandboxSession(params: {
       "A required sandbox cannot be provisioned without its session creator principal.",
     );
   }
+  // Protected provisioning starts only on a verified operator floor (B1).
+  assertProtectedFloorActive();
   if (configuredSandbox.workspaceAccess === "rw") {
     sandboxLog.warn(
       'Configured sandbox workspaceAccess "rw" is capped to "ro" for a role-required session; guests cannot share the writable agent workspace.',

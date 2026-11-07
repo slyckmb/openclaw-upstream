@@ -73,6 +73,8 @@ import { collectMcpPaginatedItems } from "./mcp-pagination.js";
 import { isMcpToolAllowed, normalizeMcpToolFilter } from "./mcp-tool-filter.js";
 import { normalizeMcpToolCatalog, type McpToolCatalogMetadata } from "./mcp-tool-metadata.js";
 import { resolveMcpTransport } from "./mcp-transport.js";
+import { isProtectedFloorPresent } from "./sandbox/protected-floor.js";
+import { resolveSandboxRuntimeStatus } from "./sandbox/runtime-status.js";
 
 type BundleMcpSession = {
   serverName: string;
@@ -279,6 +281,25 @@ export function createSessionMcpRuntime(params: {
   configFingerprint?: string;
   toolOverrides?: Pick<SessionToolOverrides, "mcpServers" | "mcpToolsDeny">;
 }): SessionMcpRuntime {
+  const sessionKey = params.sessionKey?.trim() || undefined;
+  // MCP server preparation may create PLUGIN_DATA directories before process
+  // spawn. Protected sessions have no phase-one MCP capability: reject before
+  // plugin catalog loading, transport construction, or any prepareDataDir mkdir.
+  // Sessionless jobs still require the separate durable admission floor.
+  if (
+    sessionKey &&
+    resolveSandboxRuntimeStatus({
+      cfg: params.cfg,
+      sessionKey,
+    }).sandboxRequired
+  ) {
+    throw new Error("Protected execution denied: MCP server setup is not an attested capability");
+  }
+  // A1: on a host with an operator floor, sessionless MCP setup is refused because it
+  // cannot be attributed to a protected or unprotected session.
+  if (!sessionKey && isProtectedFloorPresent()) {
+    throw new Error("Protected execution denied: sessionless MCP setup on a protected host");
+  }
   const { loaded, fingerprint: computedFingerprint } = loadSessionMcpConfig({
     workspaceDir: params.workspaceDir,
     cfg: params.cfg,
@@ -973,7 +994,7 @@ export function createSessionMcpRuntime(params: {
 
   const runtime: SessionMcpRuntime = {
     sessionId: params.sessionId,
-    sessionKey: params.sessionKey,
+    sessionKey,
     workspaceDir: params.workspaceDir,
     agentDir: params.agentDir,
     configFingerprint,

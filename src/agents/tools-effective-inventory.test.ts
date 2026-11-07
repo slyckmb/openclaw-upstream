@@ -41,6 +41,7 @@ const effectiveInventoryState = vi.hoisted(() => ({
   normalizeToolsMock: vi.fn((options: { tools: AnyAgentTool[] }) => options.tools),
   staticCatalogModelMock: vi.fn((_options: unknown) => undefined as unknown),
   normalizeTransportMock: vi.fn((_options: unknown) => undefined as unknown),
+  sandboxRequired: false as boolean,
   createToolsMock: vi.fn<typeof createOpenClawCodingTools>(
     (_options) =>
       [
@@ -78,6 +79,15 @@ vi.mock("./channel-tools.js", () => ({
 
 vi.mock("./agent-tools.policy.js", () => ({
   resolveEffectiveToolPolicy: () => effectiveInventoryState.effectivePolicy,
+}));
+
+vi.mock("./sandbox/runtime-status.js", () => ({
+  resolveSandboxRuntimeStatus: () => ({
+    sandboxRequired: effectiveInventoryState.sandboxRequired,
+    sandboxed: effectiveInventoryState.sandboxRequired,
+    mode: effectiveInventoryState.sandboxRequired ? "all" : "off",
+    ...(effectiveInventoryState.sandboxRequired ? { workspaceAccess: "ro" } : {}),
+  }),
 }));
 
 vi.mock("./runtime-plan/tools.js", () => ({
@@ -142,6 +152,7 @@ describe("resolveEffectiveToolInventory", () => {
     effectiveInventoryState.pluginMeta = {};
     effectiveInventoryState.channelMeta = {};
     effectiveInventoryState.effectivePolicy = {};
+    effectiveInventoryState.sandboxRequired = false;
     effectiveInventoryState.normalizeToolsMock = vi.fn((options) => options.tools);
     effectiveInventoryState.staticCatalogModelMock = vi.fn((_options: unknown) => undefined);
     effectiveInventoryState.normalizeTransportMock = vi.fn((_options: unknown) => undefined);
@@ -219,6 +230,24 @@ describe("resolveEffectiveToolInventory", () => {
         },
       ],
     });
+  });
+
+  it("does not assemble plugin factories for persisted protected-session inventory", async () => {
+    effectiveInventoryState.sandboxRequired = true;
+    const { resolveEffectiveToolInventory: resolveInventory, createToolsMock } =
+      await loadHarness();
+
+    resolveInventory({
+      cfg: {},
+      sessionKey: "agent:main:telegram:direct:protected-session",
+    });
+
+    expect(createToolsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "agent:main:telegram:direct:protected-session",
+        toolConstructionPlan: expect.objectContaining({ includePluginTools: false }),
+      }),
+    );
   });
 
   it("groups bundled MCP tools separately from generic plugin tools", async () => {

@@ -1,11 +1,10 @@
 # Protect the ownership rules themselves.
-/.github/CODEOWNERS @steipete
+/.github/CODEOWNERS @slyckmb
 
 # WARNING: GitHub CODEOWNERS uses last-match-wins semantics.
-# If you add overlapping rules below the secops block, include @openclaw/openclaw-secops
-# on those entries too or you can silently remove secops review routing.
-# Security-sensitive code, config, and docs require secops owner involvement
-# under repository policy. Live branch/ruleset settings decide merge enforcement.
+# Keep upstream security-owner routes below except for this fork's sandbox subtree.
+# The solo maintainer owns this file and sandbox changes; independent exact-head
+# security review remains required for protected-execution repairs.
 /SECURITY.md @openclaw/openclaw-secops
 /.github/dependabot.yml @openclaw/openclaw-secops
 /.github/codeql/ @openclaw/openclaw-secops
@@ -45,7 +44,7 @@
 /src/agents/auth-profiles/ @openclaw/openclaw-secops
 /src/agents/sandbox.ts @openclaw/openclaw-secops
 /src/agents/sandbox-*.ts @openclaw/openclaw-secops
-/src/agents/sandbox/ @openclaw/openclaw-secops
+/src/agents/sandbox/ @slyckmb
 /src/infra/secret-file*.ts @openclaw/openclaw-secops
 /src/cron/stagger.ts @openclaw/openclaw-secops
 /src/cron/service/jobs.ts @openclaw/openclaw-secops
